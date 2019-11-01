@@ -19,6 +19,11 @@ from tensorflow.keras.utils import to_categorical
 
 NrOfBots = 4
 NrOfOtherBots = 8
+LearningRate = 1e-4
+AdvantageGamma = 0.99
+NrOfEpochs = 100
+BatchSize = 125
+WeightsFile = './model_play/weights'
 
 ServerAddress = 'localhost'
 
@@ -30,7 +35,7 @@ def SendRemoteControllerCommand(command):
     sleep(1)
 
 def CreateGame():
-    print('Creating game')
+    #print('Creating game')
     command = {
         'commandType': 'createGame',
         'gameOptions': {
@@ -51,12 +56,12 @@ def CreateGame():
     SendRemoteControllerCommand(command)
 
 def StartGame():
-    print('Starting game')
+    #print('Starting game')
     command = {'commandType': 'startGame'}
     SendRemoteControllerCommand(command)
 
 def StopGame():
-    print('Stopping game')
+    #print('Stopping game')
     command = {'commandType': 'stopGame'}
     SendRemoteControllerCommand(command)
 
@@ -214,7 +219,7 @@ def BotRunner(pipe):
         commands = pipe.recv()
         # Stop process if -1 is received
         if commands == -1:
-            print("stopping process")
+            #print("stopping process")
             return
 
         for b,command in enumerate(commands):
@@ -231,10 +236,10 @@ def BotRunner(pipe):
             elif command == 2:
                 # turn CW
                 o[b] -= 3*math.pi/180
-            
+
         outOfArena = (x < 0) | (x > 1) | (y < 0) | (y > 1)
         if np.any(outOfArena):
-            print('Warning: One of the bots outside arena')
+            #print('Warning: One of the bots outside arena')
             rewards = outOfArena * -10
             done = True
         else:
@@ -253,6 +258,23 @@ def BotRunner(pipe):
 
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Dense, Conv2D, GlobalAveragePooling2D, Concatenate
+from tensorflow.keras.optimizers import Adam
+import tensorflow.keras.backend as K
+
+
+def CategoricalVanillaPolicyGradientLoss(advantage):
+    def loss_fn(y_true, y_pred):
+        y_pred = K.clip(y_pred, K.epsilon(), 1-K.epsilon())
+        crossentropy = K.sum(y_true*K.log(y_pred), axis=1, keepdims=True)
+        return -K.mean(crossentropy * advantage)
+    return loss_fn
+
+def BinaryVanillaPolicyGradientLoss(advantage):
+    def loss_fn(y_true, y_pred):
+        y_pred = K.clip(y_pred, K.epsilon(), 1-K.epsilon())
+        crossentropy = y_true*K.log(y_pred) + (1-y_true)*K.log(1-y_pred)
+        return -K.mean(crossentropy * advantage)
+    return loss_fn
 
 
 def BuildModel():
@@ -283,58 +305,124 @@ def BuildModel():
     h = Dense(3, activation='softmax', name='dense3')(h)
     
     output = h
-    model = Model([field, bots], output)
-    return model
-
-model = BuildModel()
-model.summary()
+    model_play = Model([field, bots], output)
 
 
+    advantage = Input((1,), name='advantage')
+    model_train = Model([field, bots, advantage], output)
+    model_train.compile(loss=CategoricalVanillaPolicyGradientLoss(advantage), optimizer=Adam(lr=LearningRate))
 
+    return model_play, model_train
+
+
+def Discount(values, notDones, discountFactor):
+    discountedValues = np.zeros_like(values)
+    currentValue = 0
+    for i in reversed(range(len(values))):
+        currentValue = values[i] + notDones[i] * discountFactor * currentValue
+        discountedValues[i] = currentValue
+
+    return discountedValues
+
+
+
+
+model_play, model_train = BuildModel()
+model_play.summary()
+try:
+    model_play.load_weights(WeightsFile)
+    print(f'Weights loaded from {WeightsFile}')
+except:
+    # No weights loaded, so remove history
+    with open('rewards.log', 'w+') as file:
+        file.write('')
+    pass
+
+def TrainOnBatch(observationsField, observationsBots, actions, rewards, dones):
+    totalRewards = np.sum(rewards, axis=0)
+
+    with open('rewards.log', 'a+') as file:
+        for r in totalRewards:
+            file.write(f'{int(r)}\n')
+
+    observationsField = observationsField.reshape((-1,)+observationsField.shape[2:])
+    observationsBots = observationsBots.reshape((-1,)+observationsBots.shape[2:])
+    actions = actions.reshape((-1,)+actions.shape[2:])
+    rewards = rewards.reshape((-1,)+rewards.shape[2:])
+    dones = dones.reshape((-1,)+dones.shape[2:])
+
+    print(observationsField.shape, observationsBots.shape, actions.shape, rewards.shape, dones.shape)
+
+    notDones = np.logical_not(dones)
+
+    # Discount rewards over time
+    rewards = Discount(rewards, notDones, AdvantageGamma)
+
+    # Normalize rewards
+    rewards -= np.mean(rewards)
+    rewards /= np.std(rewards)
+
+    loss = model_train.train_on_batch([observationsField, observationsBots, rewards], actions)
+    
+    model_play.save_weights(WeightsFile)
+    print(f'loss: {loss}')
+
+
+epoch = 0
+print(f'Epoch #{epoch+1}', end='')
 observationsField, observationsBots, actions, rewards, dones = [], [], [], [], []
+batchSize = 0
 
+while epoch < NrOfEpochs:
+    # Run one episode
+    pipe_master, pipe_slave = Pipe()
+    process = Process(target=BotRunner, args=(pipe_slave,))
+    process.daemon = True
+    process.start()
 
-# Run one episode
+    done = False
+    while not done and epoch < NrOfEpochs:
+        fo, bo = pipe_master.recv()
+        fo = np.expand_dims(fo, axis=0)    
+        fo = np.repeat(fo, 4, axis=0)
+        observationsField.append(fo)
+        observationsBots.append(bo)
 
-pipe_master, pipe_slave = Pipe()
-process = Process(target=BotRunner, args=(pipe_slave,))
-process.daemon = True
-process.start()
+        commands = model_play.predict([fo, bo])
+        commands = [np.random.choice(len(c), p=c) for c in commands]
+        #print(f'action: {commands}')
+        # back to one-hot
+        action = to_categorical(commands, num_classes=3)
+        actions.append(action)
 
-done = False
-while not done:
-    fo, bo = pipe_master.recv()
-    fo = np.expand_dims(fo, axis=0)    
-    fo = np.repeat(fo, 4, axis=0)
-    observationsField.append(fo)
-    observationsBots.append(bo)
+        pipe_master.send(commands) 
 
-    commands = model.predict([fo, bo])
-    commands = [np.random.choice(len(c), p=c) for c in commands]
-    print(f'action: {commands}')
-    # back to one-hot
-    action = to_categorical(commands, num_classes=3)
-    actions.append(action)
+        reward, done = pipe_master.recv()
+        #print(f'reward: {reward}')
+        rewards.append(reward)
+        dones.append([done] * NrOfBots)
 
-    pipe_master.send(commands) 
+        batchSize += 1
+        print('.', end='')
 
-    reward, done = pipe_master.recv()
-    print(f'reward: {reward}')
-    rewards.append(reward)
-    dones.append(done)
+        if batchSize >= BatchSize:
+            print('training')
+            observationsField = np.array(observationsField).astype(np.float)
+            observationsBots = np.array(observationsBots).astype(np.float)
+            actions = np.array(actions).astype(np.float)
+            rewards = np.array(rewards).astype(np.float)
+            dones = np.array(dones).astype(np.float)
 
-if not done:
-    _ = pipe_master.recv()
-    print('sending stop')
-    pipe_master.send(-1)
+            TrainOnBatch(observationsField, observationsBots, actions, rewards, dones)
 
-process.join()
-print('stopped')
+            epoch += 1
+            print(f'Epoch #{epoch+1}', end='')
+            observationsField, observationsBots, actions, rewards, dones = [], [], [], [], []
+            batchSize = 0
 
-observationsField = np.array(observationsField)
-observationsBots = np.array(observationsBots)
-actions = np.array(actions)
-rewards = np.array(rewards)
-dones = np.array(dones)
+    if not done:
+        _ = pipe_master.recv()
+        pipe_master.send(-1)
 
-print(observationsField.shape, observationsBots.shape, actions.shape, rewards.shape, dones.shape)
+    process.join()
+    print('X', end='')
