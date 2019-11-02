@@ -17,22 +17,23 @@ from tensorflow.keras.utils import to_categorical
 # items are always in the center of a cell. only one item per cell -> one-hot encode
 
 
+ServerAddress = 'localhost'
 NrOfBots = 4
 NrOfOtherBots = 8
-LearningRate = 1e-4
+LearningRate = 1e-3
 AdvantageGamma = 0.99
-NrOfEpochs = 100
-BatchSize = 125
+NrOfEpochs = 10000
+BatchSize = 512
 WeightsFile = './model_play/weights'
-
-ServerAddress = 'localhost'
+MaxEpisodeLength = 2000
+MaxCommandRepeat = 100
 
 def SendRemoteControllerCommand(command):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((ServerAddress, 9935))
         serialized = json.dumps(command)
         s.sendall(serialized.encode('utf-8'))
-    sleep(1)
+    sleep(0.1)
 
 def CreateGame():
     #print('Creating game')
@@ -209,6 +210,10 @@ def BotRunner(pipe):
 
     done = False
 
+    lastBotCommand = np.array([-1] * NrOfBots)
+    lastBotCommandCount = np.zeros((NrOfBots,))
+
+    episodeLength = 0
     while not done:
         previousScores = scores
 
@@ -237,6 +242,13 @@ def BotRunner(pipe):
                 # turn CW
                 o[b] -= 3*math.pi/180
 
+            # Remember how many times this action was performed
+            if command == lastBotCommand[b]:
+                lastBotCommandCount[b] += 1
+            else:
+                lastBotCommandCount[b] = 0
+            lastBotCommand[b] = command
+
         outOfArena = (x < 0) | (x > 1) | (y < 0) | (y > 1)
         if np.any(outOfArena):
             #print('Warning: One of the bots outside arena')
@@ -248,7 +260,18 @@ def BotRunner(pipe):
 
             fieldObs, botObs, scores = GetObservation()
             rewards = scores - previousScores
+            
+            # Punish if same action was performed too many times
+            tooMuchRepeats = (lastBotCommandCount > MaxCommandRepeat)
+            if np.any(tooMuchRepeats):
+                rewards += tooMuchRepeats * -5
+        
+        episodeLength += 1
+        if episodeLength >= MaxEpisodeLength:
+            done = True
+
         pipe.send((rewards, done))
+
 
     StopGame()
 
@@ -339,19 +362,14 @@ except:
     pass
 
 def TrainOnBatch(observationsField, observationsBots, actions, rewards, dones):
-    totalRewards = np.sum(rewards, axis=0)
+    # Save current weights, if this training fails, then we still have a backup
+    model_play.save_weights(WeightsFile)
 
+    totalRewards = np.sum(rewards, axis=0)
     with open('rewards.log', 'a+') as file:
         for r in totalRewards:
             file.write(f'{int(r)}\n')
-
-    observationsField = observationsField.reshape((-1,)+observationsField.shape[2:])
-    observationsBots = observationsBots.reshape((-1,)+observationsBots.shape[2:])
-    actions = actions.reshape((-1,)+actions.shape[2:])
-    rewards = rewards.reshape((-1,)+rewards.shape[2:])
-    dones = dones.reshape((-1,)+dones.shape[2:])
-
-    print(observationsField.shape, observationsBots.shape, actions.shape, rewards.shape, dones.shape)
+    print(f'total reward {np.sum(totalRewards)}')
 
     notDones = np.logical_not(dones)
 
@@ -360,13 +378,20 @@ def TrainOnBatch(observationsField, observationsBots, actions, rewards, dones):
 
     # Normalize rewards
     rewards -= np.mean(rewards)
-    rewards /= np.std(rewards)
+    rewardSigma = np.std(rewards)
+    if rewardSigma > 1e-7:
+        rewards /= rewardSigma
 
+    # Reshape into one giant batch
+    observationsField = observationsField.reshape((-1,)+observationsField.shape[2:])
+    observationsBots = observationsBots.reshape((-1,)+observationsBots.shape[2:])
+    actions = actions.reshape((-1,)+actions.shape[2:])
+    rewards = rewards.reshape((-1,)+rewards.shape[2:])
+    dones = dones.reshape((-1,)+dones.shape[2:])
+    #print(observationsField.shape, observationsBots.shape, actions.shape, rewards.shape, dones.shape)
+
+    # Train
     loss = model_train.train_on_batch([observationsField, observationsBots, rewards], actions)
-    
-    model_play.save_weights(WeightsFile)
-    print(f'loss: {loss}')
-
 
 epoch = 0
 print(f'Epoch #{epoch+1}', end='')
