@@ -5,7 +5,7 @@ from multiprocessing import Process, Pipe, Queue
 import numpy as np
 import random
 import math
-
+from datetime import datetime
 from tensorflow.keras.utils import to_categorical  
 
 
@@ -18,15 +18,19 @@ from tensorflow.keras.utils import to_categorical
 
 
 ServerAddress = 'localhost'
-NrOfBots = 4
+NrOfBots = 8
 NrOfOtherBots = 8
-LearningRate = 1e-3
+LearningRate = 3e-4
 AdvantageGamma = 0.99
 NrOfEpochs = 10000
-BatchSize = 512
 WeightsFile = './model_play/weights'
-MaxEpisodeLength = 2000
+BatchSize = 2048
+MaxEpisodeLength = 1100
 MaxCommandRepeat = 100
+OutOfArenaReward = -1
+TooManyRepeatsReward = -1
+EpsilonDecay = 0.9954
+epsilon = 0.855
 
 def SendRemoteControllerCommand(command):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -213,7 +217,6 @@ def BotRunner(pipe):
     lastBotCommand = np.array([-1] * NrOfBots)
     lastBotCommandCount = np.zeros((NrOfBots,))
 
-    episodeLength = 0
     while not done:
         previousScores = scores
 
@@ -223,7 +226,7 @@ def BotRunner(pipe):
         if not pipe.poll(60): return
         commands = pipe.recv()
         # Stop process if -1 is received
-        if commands == -1:
+        if commands is None:
             #print("stopping process")
             return
 
@@ -252,7 +255,7 @@ def BotRunner(pipe):
         outOfArena = (x < 0) | (x > 1) | (y < 0) | (y > 1)
         if np.any(outOfArena):
             #print('Warning: One of the bots outside arena')
-            rewards = outOfArena * -10
+            rewards = outOfArena * OutOfArenaReward
             done = True
         else:
             SendState(x, y, o)
@@ -262,16 +265,11 @@ def BotRunner(pipe):
             rewards = scores - previousScores
             
             # Punish if same action was performed too many times
-            tooMuchRepeats = (lastBotCommandCount > MaxCommandRepeat)
-            if np.any(tooMuchRepeats):
-                rewards += tooMuchRepeats * -5
+            tooManyRepeats = (lastBotCommandCount > MaxCommandRepeat)
+            if np.any(tooManyRepeats):
+                rewards += tooManyRepeats * TooManyRepeatsReward
         
-        episodeLength += 1
-        if episodeLength >= MaxEpisodeLength:
-            done = True
-
         pipe.send((rewards, done))
-
 
     StopGame()
 
@@ -348,6 +346,12 @@ def Discount(values, notDones, discountFactor):
     return discountedValues
 
 
+def SelectAction(probs):
+    global epsilon
+    if np.random.uniform() < epsilon:
+        return [np.random.choice(len(p)) for p in probs]
+    else:
+        return np.argmax(probs, axis=1)
 
 
 model_play, model_train = BuildModel()
@@ -394,9 +398,10 @@ def TrainOnBatch(observationsField, observationsBots, actions, rewards, dones):
     loss = model_train.train_on_batch([observationsField, observationsBots, rewards], actions)
 
 epoch = 0
-print(f'Epoch #{epoch+1}', end='')
+print(f'Epoch #{epoch+1} (epsilon {epsilon:.4f})', end='')
 observationsField, observationsBots, actions, rewards, dones = [], [], [], [], []
 batchSize = 0
+epochStart = datetime.now()
 
 while epoch < NrOfEpochs:
     # Run one episode
@@ -405,22 +410,23 @@ while epoch < NrOfEpochs:
     process.daemon = True
     process.start()
 
+    episodeLength = 0
     done = False
     while not done and epoch < NrOfEpochs:
         fo, bo = pipe_master.recv()
         fo = np.expand_dims(fo, axis=0)    
-        fo = np.repeat(fo, 4, axis=0)
+        fo = np.repeat(fo, NrOfBots, axis=0)
         observationsField.append(fo)
         observationsBots.append(bo)
 
-        commands = model_play.predict([fo, bo])
-        commands = [np.random.choice(len(c), p=c) for c in commands]
-        #print(f'action: {commands}')
+        probs = model_play.predict([fo, bo])
+        action = SelectAction(probs)
+        #print(f'action: {action}')
+        pipe_master.send(action) 
         # back to one-hot
-        action = to_categorical(commands, num_classes=3)
+        action = to_categorical(action, num_classes=3)
         actions.append(action)
 
-        pipe_master.send(commands) 
 
         reward, done = pipe_master.recv()
         #print(f'reward: {reward}')
@@ -428,10 +434,15 @@ while epoch < NrOfEpochs:
         dones.append([done] * NrOfBots)
 
         batchSize += 1
+        episodeLength += 1
+        epsilon = EpsilonDecay * epsilon
         print('.', end='')
 
         if batchSize >= BatchSize:
-            print('training')
+            epochDuration = (datetime.now() - epochStart).total_seconds()
+            print(f'finished ({epochDuration:.1f})')
+
+            # Train
             observationsField = np.array(observationsField).astype(np.float)
             observationsBots = np.array(observationsBots).astype(np.float)
             actions = np.array(actions).astype(np.float)
@@ -441,13 +452,19 @@ while epoch < NrOfEpochs:
             TrainOnBatch(observationsField, observationsBots, actions, rewards, dones)
 
             epoch += 1
-            print(f'Epoch #{epoch+1}', end='')
+            print(f'Epoch #{epoch+1} (epsilon {epsilon:.4f})', end='')
             observationsField, observationsBots, actions, rewards, dones = [], [], [], [], []
             batchSize = 0
+            epochStart = datetime.now()
+
+        if episodeLength > MaxEpisodeLength:
+            break
 
     if not done:
+        print('X', end='')
         _ = pipe_master.recv()
-        pipe_master.send(-1)
+        pipe_master.send(None)
+    else:
+        print('!', end='')
 
     process.join()
-    print('X', end='')
