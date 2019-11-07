@@ -20,17 +20,19 @@ from tensorflow.keras.utils import to_categorical
 ServerAddress = 'localhost'
 NrOfBots = 8
 NrOfOtherBots = 8
-LearningRate = 3e-4
+LearningRate = 1e-3
 AdvantageGamma = 0.99
 NrOfEpochs = 10000
 WeightsFile = './model_play/weights'
-BatchSize = 2048
+BatchSize = 1024
 MaxEpisodeLength = 1100
 MaxCommandRepeat = 100
 OutOfArenaReward = -1
 TooManyRepeatsReward = -1
-EpsilonDecay = 0.9954
-epsilon = 0.855
+EpsilonDecay = 0.99
+UseEpsilonGreedy = False
+
+epsilon = 0.6
 
 def SendRemoteControllerCommand(command):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -264,6 +266,9 @@ def BotRunner(pipe):
             fieldObs, botObs, scores = GetObservation()
             rewards = scores - previousScores
             
+            ## Increase weight of positive rewards
+            #rewards = rewards + (((rewards > 0) * rewards) * 4)
+
             # Punish if same action was performed too many times
             tooManyRepeats = (lastBotCommandCount > MaxCommandRepeat)
             if np.any(tooManyRepeats):
@@ -272,8 +277,6 @@ def BotRunner(pipe):
         pipe.send((rewards, done))
 
     StopGame()
-
-
 
 
 
@@ -303,26 +306,26 @@ def BuildModel():
     bots = Input((35,), name='bots')
 
     f = field
-    f = Conv2D(64, 1, strides=1, padding='same', activation='relu', name='conv1a')(f)
-    f = Conv2D(64, 3, strides=1, padding='same', activation='relu', name='conv1b')(f)
-    f = Conv2D(64, 3, strides=2, padding='same', activation='relu', name='conv1c')(f)
+    f = Conv2D(64, 1, strides=1, padding='same', activation='elu', name='conv1a')(f)
+    f = Conv2D(64, 3, strides=1, padding='same', activation='elu', name='conv1b')(f)
+    f = Conv2D(64, 3, strides=2, padding='same', activation='elu', name='conv1c')(f)
 
-    f = Conv2D(128, 1, strides=1, padding='same', activation='relu', name='conv2a')(f)
-    f = Conv2D(128, 3, strides=1, padding='same', activation='relu', name='conv2b')(f)
-    f = Conv2D(128, 3, strides=2, padding='same', activation='relu', name='conv2c')(f)
+    f = Conv2D(128, 1, strides=1, padding='same', activation='elu', name='conv2a')(f)
+    f = Conv2D(128, 3, strides=1, padding='same', activation='elu', name='conv2b')(f)
+    f = Conv2D(128, 3, strides=2, padding='same', activation='elu', name='conv2c')(f)
 
-    f = Conv2D(256, 1, strides=1, padding='same', activation='relu', name='conv3a')(f)
-    f = Conv2D(256, 3, strides=1, padding='same', activation='relu', name='conv3b')(f)
-    f = Conv2D(256, 3, strides=2, padding='same', activation='relu', name='conv3c')(f)
+    f = Conv2D(256, 1, strides=1, padding='same', activation='elu', name='conv3a')(f)
+    f = Conv2D(256, 3, strides=1, padding='same', activation='elu', name='conv3b')(f)
+    f = Conv2D(256, 3, strides=2, padding='same', activation='elu', name='conv3c')(f)
 
     f = GlobalAveragePooling2D(name='avg')(f)
 
     b = bots
-    b = Dense(128, activation='relu', name='pre1')(b)
+    b = Dense(128, activation='elu', name='pre1')(b)
     
     h = Concatenate(name='concat')([f, b])
-    h = Dense(1024, activation='relu', name='dense1')(h)
-    h = Dense(256, activation='relu', name='dense2')(h)
+    h = Dense(1024, activation='elu', name='dense1')(h)
+    h = Dense(256, activation='elu', name='dense2')(h)
     h = Dense(3, activation='softmax', name='dense3')(h)
     
     output = h
@@ -348,10 +351,13 @@ def Discount(values, notDones, discountFactor):
 
 def SelectAction(probs):
     global epsilon
-    if np.random.uniform() < epsilon:
-        return [np.random.choice(len(p)) for p in probs]
+    if UseEpsilonGreedy:
+        if np.random.uniform() < epsilon:
+            return [np.random.choice(len(p)) for p in probs]
+        else:
+            return np.argmax(probs, axis=1)
     else:
-        return np.argmax(probs, axis=1)
+        return [np.random.choice(len(p), p=p) for p in probs]
 
 
 model_play, model_train = BuildModel()
@@ -413,12 +419,16 @@ while epoch < NrOfEpochs:
     episodeLength = 0
     done = False
     while not done and epoch < NrOfEpochs:
+        print('.', end='')
+
+        # Get and store current observation
         fo, bo = pipe_master.recv()
         fo = np.expand_dims(fo, axis=0)    
         fo = np.repeat(fo, NrOfBots, axis=0)
         observationsField.append(fo)
         observationsBots.append(bo)
 
+        # Select, perform and store action
         probs = model_play.predict([fo, bo])
         action = SelectAction(probs)
         #print(f'action: {action}')
@@ -427,17 +437,17 @@ while epoch < NrOfEpochs:
         action = to_categorical(action, num_classes=3)
         actions.append(action)
 
-
+        # Get and store reward
         reward, done = pipe_master.recv()
         #print(f'reward: {reward}')
         rewards.append(reward)
         dones.append([done] * NrOfBots)
 
+        # Next iteration
         batchSize += 1
         episodeLength += 1
-        epsilon = EpsilonDecay * epsilon
-        print('.', end='')
 
+        # Train when batch is large enough
         if batchSize >= BatchSize:
             epochDuration = (datetime.now() - epochStart).total_seconds()
             print(f'finished ({epochDuration:.1f})')
@@ -451,12 +461,15 @@ while epoch < NrOfEpochs:
 
             TrainOnBatch(observationsField, observationsBots, actions, rewards, dones)
 
+            # New epoch
             epoch += 1
+            epsilon = EpsilonDecay * epsilon
             print(f'Epoch #{epoch+1} (epsilon {epsilon:.4f})', end='')
             observationsField, observationsBots, actions, rewards, dones = [], [], [], [], []
             batchSize = 0
             epochStart = datetime.now()
 
+        # Stop when episode is too long
         if episodeLength > MaxEpisodeLength:
             break
 
