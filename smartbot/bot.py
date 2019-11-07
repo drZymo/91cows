@@ -105,33 +105,40 @@ ActionItemTypes = {
     'TestTube': 7,
 }
 
+Walls = {
+    #   t,r,b,l
+    0: np.array([0,0,0,0]),
+    1: np.array([0,0,0,1]),
+    2: np.array([0,1,0,1]),
+    3: np.array([1,0,0,1]),
+    4: np.array([1,1,0,1]),
+}
+
+def GetCellWalls(cellType, cellOrient):
+    walls = Walls[cellType]
+
+    while cellOrient > 0:
+        walls = walls[[1,2,3,0]]
+        cellOrient -= 90
+
+
 def GetFieldObservation(gameState):
     data = gameState['data']
 
-    cellTypes = []
-    for column in data:
-        cellTypesColumn = []
-        for entry in column:
-            cellType = int(entry['type'])   # 5 classes
-            cellOrient = int(entry['orientation']) // 90    # 4 classes
+    walls = np.array([
+        [GetCellWalls(int(entry['type']), int(entry['orientation'])) for entry in row]
+        for row in gameState['data']])
 
-            cellType = cellType * 4 + cellOrient
-
-            cellTypesColumn.append(cellType)
-        cellTypesColumn = np.array(cellTypesColumn)
-
-        cellTypes.append(cellTypesColumn)
-    cellTypes = np.array(cellTypes)
-
-    fieldHeight, fieldWidth = cellTypes.shape
+    fieldHeight, fieldWidth = walls.shape
 
     actionItems = gameState['actionItems']
     
-    actionItemTypes = np.zeros_like(cellTypes)
+    actionItemTypes = np.zeros((fieldHeight, fieldWidth, 8))
     for actionItem in actionItems:
         x = actionItem['x']
         y = actionItem['y']
         actionItemType = ActionItemTypes[actionItem['type']]
+        actionItemType = to_categorical(actionItemType, num_classes=8)
         
         x = int(math.floor(x * fieldWidth))
         y = int(math.floor(y * fieldHeight))
@@ -140,8 +147,8 @@ def GetFieldObservation(gameState):
     field = []
     for y in range(fieldHeight):
         for x in range(fieldWidth):
-            ct = to_categorical(cellTypes[y, x], num_classes=20)
-            at = to_categorical(actionItemTypes[y, x], num_classes=8)
+            ct = walls[y, x]
+            at = actionItemTypes[y, x]
             f = np.hstack([ct, at])
 
             field.append(f)
@@ -302,21 +309,21 @@ def BinaryVanillaPolicyGradientLoss(advantage):
 
 
 def BuildModel():
-    field = Input((10, 10, 28), name='field')
+    field = Input((10, 10, 9), name='field')
     bots = Input((35,), name='bots')
 
     f = field
-    f = Conv2D(64, 1, strides=1, padding='same', activation='elu', name='conv1a')(f)
-    f = Conv2D(64, 3, strides=1, padding='same', activation='elu', name='conv1b')(f)
-    f = Conv2D(64, 3, strides=2, padding='same', activation='elu', name='conv1c')(f)
+    f = Conv2D(32, 1, strides=1, padding='same', activation='elu', name='conv1a')(f)
+    f = Conv2D(32, 3, strides=1, padding='same', activation='elu', name='conv1b')(f)
+    f = Conv2D(32, 3, strides=2, padding='same', activation='elu', name='conv1c')(f)
 
-    f = Conv2D(128, 1, strides=1, padding='same', activation='elu', name='conv2a')(f)
-    f = Conv2D(128, 3, strides=1, padding='same', activation='elu', name='conv2b')(f)
-    f = Conv2D(128, 3, strides=2, padding='same', activation='elu', name='conv2c')(f)
+    f = Conv2D(64, 1, strides=1, padding='same', activation='elu', name='conv2a')(f)
+    f = Conv2D(64, 3, strides=1, padding='same', activation='elu', name='conv2b')(f)
+    f = Conv2D(64, 3, strides=2, padding='same', activation='elu', name='conv2c')(f)
 
-    f = Conv2D(256, 1, strides=1, padding='same', activation='elu', name='conv3a')(f)
-    f = Conv2D(256, 3, strides=1, padding='same', activation='elu', name='conv3b')(f)
-    f = Conv2D(256, 3, strides=2, padding='same', activation='elu', name='conv3c')(f)
+    f = Conv2D(128, 1, strides=1, padding='same', activation='elu', name='conv3a')(f)
+    f = Conv2D(128, 3, strides=1, padding='same', activation='elu', name='conv3b')(f)
+    f = Conv2D(128, 3, strides=2, padding='same', activation='elu', name='conv3c')(f)
 
     f = GlobalAveragePooling2D(name='avg')(f)
 
@@ -324,8 +331,8 @@ def BuildModel():
     b = Dense(128, activation='elu', name='pre1')(b)
     
     h = Concatenate(name='concat')([f, b])
-    h = Dense(1024, activation='elu', name='dense1')(h)
-    h = Dense(256, activation='elu', name='dense2')(h)
+    h = Dense(512, activation='elu', name='dense1')(h)
+    h = Dense(128, activation='elu', name='dense2')(h)
     h = Dense(3, activation='softmax', name='dense3')(h)
     
     output = h
