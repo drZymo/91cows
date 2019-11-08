@@ -6,7 +6,6 @@ import numpy as np
 import random
 import math
 from datetime import datetime
-from tensorflow.keras.utils import to_categorical  
 
 
 ### TODO
@@ -33,6 +32,9 @@ EpsilonDecay = 0.99
 UseEpsilonGreedy = False
 
 epsilon = 0.6
+
+
+
 
 def SendRemoteControllerCommand(command):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -95,66 +97,6 @@ def SendState(x, y, o):
         robots.append(robot)
     SendRobots(robots)
 
-ActionItemTypes = {
-    'Coin': 1,
-    'TreasureChest': 2,
-    'EmptyChest': 3,
-    'MimicChest': 4,
-    'SpikeTrap':  5,
-    'Bottle': 6,
-    'TestTube': 7,
-}
-
-Walls = {
-    #   t,r,b,l
-    0: np.array([0,0,0,0]),
-    1: np.array([0,0,0,1]),
-    2: np.array([0,1,0,1]),
-    3: np.array([1,0,0,1]),
-    4: np.array([1,1,0,1]),
-}
-
-def GetCellWalls(cellType, cellOrient):
-    walls = Walls[cellType]
-
-    while cellOrient > 0:
-        walls = walls[[1,2,3,0]]
-        cellOrient -= 90
-
-
-def GetFieldObservation(gameState):
-    data = gameState['data']
-
-    walls = np.array([
-        [GetCellWalls(int(entry['type']), int(entry['orientation'])) for entry in row]
-        for row in gameState['data']])
-
-    fieldHeight, fieldWidth = walls.shape
-
-    actionItems = gameState['actionItems']
-    
-    actionItemTypes = np.zeros((fieldHeight, fieldWidth, 8))
-    for actionItem in actionItems:
-        x = actionItem['x']
-        y = actionItem['y']
-        actionItemType = ActionItemTypes[actionItem['type']]
-        actionItemType = to_categorical(actionItemType, num_classes=8)
-        
-        x = int(math.floor(x * fieldWidth))
-        y = int(math.floor(y * fieldHeight))
-        actionItemTypes[y, x] = actionItemType
-
-    field = []
-    for y in range(fieldHeight):
-        for x in range(fieldWidth):
-            ct = walls[y, x]
-            at = actionItemTypes[y, x]
-            f = np.hstack([ct, at])
-
-            field.append(f)
-    field = np.reshape(field, (fieldHeight, fieldWidth, -1))
-
-    return field
 
 def GetAngleFromForward(forward):
     theta = math.atan2(forward[1], forward[0])
@@ -309,9 +251,9 @@ def BinaryVanillaPolicyGradientLoss(advantage):
 
 
 def BuildModel():
-    field = Input((10, 10, 9), name='field')
+    field = Input((10, 10, 8), name='field')
     bots = Input((35,), name='bots')
-
+num_cl
     f = field
     f = Conv2D(32, 1, strides=1, padding='same', activation='elu', name='conv1a')(f)
     f = Conv2D(32, 3, strides=1, padding='same', activation='elu', name='conv1b')(f)

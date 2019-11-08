@@ -3,66 +3,48 @@ import socket
 import json
 import numpy as np
 
-buffer = ''
-
-def GetGameState():
-    global buffer
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect(('localhost', 9735))
-
-        newLinePos = buffer.find('\n')
-        while newLinePos < 0:
-            data = s.recv(16384).decode('utf-8')
-            buffer += data
-            newLinePos = buffer.find('\n')
-
-        line = buffer[:newLinePos]
-        buffer = buffer[newLinePos+1:]
-        gameState = json.loads(line)
-
-    return gameState
-
-def GetField(gameState):
-    return np.array([
-        [(int(entry['type']), int(entry['orientation']) // 90) for entry in row]
-        for row in gameState['data']])
+from swoc import Env
 
 
-walls = {
-    #   t,r,b,l
-    0: np.array([0,0,0,0]),
-    1: np.array([0,0,0,1]),
-    2: np.array([0,1,0,1]),
-    3: np.array([1,0,0,1]),
-    4: np.array([1,1,0,1]),
-}
 
+def DrawImage(obs, width, height):
+    field, bots, gameTick = obs
 
-def DrawImage(gameState, width, height):
     im = Image.new('L', (width, height + 20), color=0)
 
     draw = ImageDraw.Draw(im)
 
     def DrawCell(x, y, cell):
-        cellType, cellOrient = cell
         l, t = x * 80, height - (y+1) * 80
         r, b = (x+1) * 80 - 1, height - y * 80 - 1
+        cx, cy = (l+r)/2, (b+t)/2
 
         draw.rectangle((l + 2, t + 2, r - 2, b - 2), fill=None, outline=32)
-        wall = walls[cellType]
 
-        while cellOrient > 0:
-            wall = wall[[1,2,3,0]]
-            cellOrient -= 1
-        
-        if wall[0]:
-            draw.rectangle((l, t, r, t-2), fill=128, outline=None)
-        if wall[1]:
-            draw.rectangle((r-2, t, r, b), fill=128, outline=None)
-        if wall[2]:
-            draw.rectangle((l, b+2, r, b), fill=128, outline=None)
-        if wall[3]:
-            draw.rectangle((l, t, l+2, b), fill=128, outline=None)
+        if cell[0]:
+            draw.rectangle((l, t, r, t-2), fill=192, outline=None)
+        if cell[1]:
+            draw.rectangle((r-2, t, r, b), fill=192, outline=None)
+        if cell[2]:
+            draw.rectangle((l, b+2, r, b), fill=192, outline=None)
+        if cell[3]:
+            draw.rectangle((l, t, l+2, b), fill=192, outline=None)
+
+        if cell[4]:
+            draw.ellipse((l+30,t+30,r-30,b-30), fill=128, outline=192)
+        if cell[5]:
+            draw.rectangle((l+30,t+30,r-30,b-30), fill=96, outline=128)
+        if cell[6]:
+            draw.rectangle((l+30,t+30,r-30,b-30), fill=None, outline=128)
+        if cell[7]:
+            draw.rectangle((l+30,t+30,r-30,b-30), fill=96, outline=128)
+        if cell[8]:
+            draw.polygon((l+30,b-30,l+35,t+30,l+40,b-30,l+45,t+30,l+50,b-30), fill=96, outline=128)
+        if cell[9]:
+            draw.ellipse((l+35,t+30,r-35,b-30), fill=96, outline=128)
+        if cell[10]:
+            draw.ellipse((l+35,t+30,r-35,b-30), fill=None, outline=128)
+
 
     def DrawField(field):
         nrRows, nrColumns = field.shape[0], field.shape[1]
@@ -75,9 +57,11 @@ def DrawImage(gameState, width, height):
                 DrawCell(x, y, cell)
 
     def DrawBot(bot):
-        position = np.array(bot['position'])
-        forward = np.array(bot['forward'])
-        right = np.array(bot['right'])
+        if not bot[0]: return
+
+        position = bot[1:3]
+        forward =  bot[3:5]
+        right = bot[5:7]
 
         rightForward = position + forward + right
         leftForward = position + forward - right
@@ -97,14 +81,12 @@ def DrawImage(gameState, width, height):
             xy = line * [width, height]
             draw.line(xy.flatten().tolist(), fill=255)
 
-    gameTick = gameState['gameTick']
-    draw.text((10, height+5), f'tick: {gameTick}', fill=255)
 
-    field = GetField(gameState)
+    draw.text((10, height+5), f'tick: {gameTick}', fill=255)
 
     DrawField(field)
 
-    for bot in gameState['bots']:
+    for bot in bots:
         DrawBot(bot)
 
     del draw
@@ -113,22 +95,23 @@ def DrawImage(gameState, width, height):
 import pyglet
 from pyglet.window import mouse
 
-width, height = 800, 800
-window = pyglet.window.Window(width=width, height=height)
+with Env() as env:
 
-gameState = GetGameState()
-rawImage = DrawImage(gameState, width, height)
-image = pyglet.image.ImageData(width, height, 'L', rawImage, pitch=-width)
+    width, height = 800, 800
+    window = pyglet.window.Window(width=width, height=height)
 
-@window.event
-def on_draw():
-    image.blit(0, 0, 0)
+    rawImage = DrawImage(env.getObservation(), width, height)
 
-def update(dt):
-    gameState = GetGameState()
-    rawImage = DrawImage(gameState, width, height)
-    image.set_data(fmt='L', data=rawImage, pitch=-width)
+    image = pyglet.image.ImageData(width, height, 'L', rawImage, pitch=-width)
 
-pyglet.clock.schedule_interval(update, 0.1)
+    @window.event
+    def on_draw():
+        image.blit(0, 0, 0)
 
-pyglet.app.run()
+    def update(dt):
+        rawImage = DrawImage(env.getObservation(), width, height)
+        image.set_data(fmt='L', data=rawImage, pitch=-width)
+
+    pyglet.clock.schedule_interval(update, 0.1)
+
+    pyglet.app.run()
