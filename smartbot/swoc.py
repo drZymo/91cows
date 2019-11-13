@@ -55,7 +55,7 @@ def getFieldObservation(gameState):
         actionItemType = to_categorical(actionItemType, num_classes=7)
         
         x = int(np.floor(x * fieldWidth))
-        y = int(np.floor(y * fieldHeight))
+        y = int(np.floor((1-y) * fieldHeight))
         actionItemTypes[y, x] = actionItemType
 
     field = []
@@ -99,6 +99,8 @@ class Observer(object):
         self.buffer = ''
 
     def _getGameState(self):
+        # is there a line in the buffer
+        # if not, read blocks until there is one
         newLinePos = self.buffer.find('\n')
         while newLinePos < 0:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -107,10 +109,14 @@ class Observer(object):
                 self.buffer += data
             newLinePos = self.buffer.find('\n')
 
-        line = self.buffer[:newLinePos]
-        self.buffer = self.buffer[newLinePos+1:]
-        gameState = json.loads(line)
+        # make sure all old lines are consumed and only the most recent is used
+        while newLinePos >= 0:
+            line = self.buffer[:newLinePos]
+            self.buffer = self.buffer[newLinePos+1:]
+            newLinePos = self.buffer.find('\n')
 
+        # conver to game state structure
+        gameState = json.loads(line)
         return gameState
 
     def getObservation(self):

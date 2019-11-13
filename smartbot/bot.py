@@ -224,14 +224,14 @@ while epoch < NrOfEpochs:
             epochDuration = (datetime.now() - epochStart).total_seconds()
             print(f'finished ({epochDuration:.1f})')
 
-            # # Train
-            # observationsField = np.array(observationsField).astype(np.float)
-            # observationsBots = np.array(observationsBots).astype(np.float)
-            # actions = np.array(actions).astype(np.float)
-            # rewards = np.array(rewards).astype(np.float)
-            # dones = np.array(dones).astype(np.float)
+            # Train
+            observationsField = np.array(observationsField).astype(np.float)
+            observationsBots = np.array(observationsBots).astype(np.float)
+            actions = np.array(actions).astype(np.float)
+            rewards = np.array(rewards).astype(np.float)
+            dones = np.array(dones).astype(np.float)
 
-            # TrainOnBatch(observationsField, observationsBots, actions, rewards, dones)
+            TrainOnBatch(observationsField, observationsBots, actions, rewards, dones)
 
             # New epoch
             epoch += 1
