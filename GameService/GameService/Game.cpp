@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QDebug>
 #include <QRandomGenerator>
+#include <iostream>
 
 int Game::m_gameId = 0;
 
@@ -81,7 +82,7 @@ void Game::start()
         m_gameTimer = QSharedPointer<QTimer>::create();
         m_gameTimer->setTimerType(Qt::PreciseTimer);
         m_gameTimer->setSingleShot(true);
-        m_gameTimer->start(1000*10);
+        m_gameTimer->start(3600*1000);
     }
     if (m_state == State::Stopped)
     {
@@ -361,6 +362,7 @@ void Game::handleWallCollision(BotInfo& botInfo)
     if (botInfo.wallColisionTimer.isValid() && botInfo.wallColisionTimer.elapsed() < 1000) return;
     botInfo.score--;
     botInfo.wallColisionTimer.start();
+    std::cout << "bot #" << botInfo.arucoId << " wall collision -1" << std::endl;
 }
 
 
@@ -400,6 +402,7 @@ void Game::handleActionItemCollision(BotInfo& botInfo, const ActionItem& actionI
     {
         case GameOptions::ActionItemType::Coin:
         {
+            std::cout << "bot #" << botInfo.arucoId << " coin +2" << std::endl;
             botInfo.score += 2;
             break;
         }
@@ -416,6 +419,7 @@ void Game::handleActionItemCollision(BotInfo& botInfo, const ActionItem& actionI
         case GameOptions::ActionItemType::SpikeTrap:
         {
             if (botInfo.spikeCollisionTimer.isValid() && botInfo.spikeCollisionTimer.elapsed() < 1000) return;
+            std::cout << "bot #" << botInfo.arucoId << " spike trap -1" << std::endl;
             botInfo.score--;
             botInfo.spikeCollisionTimer.start();
             break;
@@ -426,11 +430,13 @@ void Game::handleActionItemCollision(BotInfo& botInfo, const ActionItem& actionI
         }
         case GameOptions::ActionItemType::MimicChest:
         {
+            std::cout << "bot #" << botInfo.arucoId << " mimic chest -5" << std::endl;
             botInfo.score -= 5;
             break;
         }
         case GameOptions::ActionItemType::TreasureChest:
         {
+            std::cout << "bot #" << botInfo.arucoId << " treasure chest +10" << std::endl;
             botInfo.score += 10;
             break;
         }

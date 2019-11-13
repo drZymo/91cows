@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
 
     QObject::connect(&gameRunner, &GameRunner::sendOutRevealedState, [&visualizationSocket] (const QJsonObject& state)
     {
-        qDebug().noquote().nospace() << "Sending out gameState" << state;
+        //qDebug().noquote().nospace() << "Sending out gameState" << state;
         visualizationSocket.sendState(state);
     });
     QObject::connect(&gameRunner, &GameRunner::sendOutObscuredState, [&botClientSockets] (const QJsonObject& state)
