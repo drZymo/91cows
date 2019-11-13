@@ -3,12 +3,14 @@ import socket
 import json
 import numpy as np
 
-from swoc import Env
+from swoc import Observer
 
 
 
 def DrawImage(obs, width, height):
-    field, bots, gameTick = obs
+    field, bots, scores, gameTick = obs
+
+    print(gameTick)
 
     im = Image.new('L', (width, height + 20), color=0)
 
@@ -60,8 +62,12 @@ def DrawImage(obs, width, height):
         if not bot[0]: return
 
         position = bot[1:3]
-        forward =  bot[3:5]
-        right = bot[5:7]
+        orientation = bot[3]
+        
+        c, s = np.cos(orientation), np.sin(orientation)
+        R = np.array(((c, -s), (s, c)))
+        forward = np.matmul(R, [0.025, 0.0])
+        right = np.matmul(R, [0.0, 0.025])
 
         rightForward = position + forward + right
         leftForward = position + forward - right
@@ -95,23 +101,23 @@ def DrawImage(obs, width, height):
 import pyglet
 from pyglet.window import mouse
 
-with Env() as env:
+observer = Observer()
 
-    width, height = 800, 800
-    window = pyglet.window.Window(width=width, height=height)
+width, height = 800, 800
+window = pyglet.window.Window(width=width, height=height)
 
-    rawImage = DrawImage(env.getObservation(), width, height)
+rawImage = DrawImage(observer.getObservation(), width, height)
 
-    image = pyglet.image.ImageData(width, height, 'L', rawImage, pitch=-width)
+image = pyglet.image.ImageData(width, height, 'L', rawImage, pitch=-width)
 
-    @window.event
-    def on_draw():
-        image.blit(0, 0, 0)
+@window.event
+def on_draw():
+    image.blit(0, 0, 0)
 
-    def update(dt):
-        rawImage = DrawImage(env.getObservation(), width, height)
-        image.set_data(fmt='L', data=rawImage, pitch=-width)
+def update(dt):
+    rawImage = DrawImage(observer.getObservation(), width, height)
+    image.set_data(fmt='L', data=rawImage, pitch=-width)
 
-    pyglet.clock.schedule_interval(update, 0.1)
+pyglet.clock.schedule_interval(update, 0.05)
 
-    pyglet.app.run()
+pyglet.app.run()
