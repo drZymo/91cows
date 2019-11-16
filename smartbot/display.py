@@ -10,8 +10,6 @@ from swoc import Observer
 def DrawImage(obs, width, height):
     field, bots, scores, gameTick = obs
 
-    print(gameTick)
-
     im = Image.new('L', (width, height + 20), color=0)
 
     draw = ImageDraw.Draw(im)

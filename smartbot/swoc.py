@@ -79,8 +79,8 @@ def getAngleFromForward(forward):
 
 
 def getBotObservation(gameState):
-    bots = np.zeros((MaxNrOfBots, 4))
-    scores = np.zeros((MaxNrOfBots,))
+    bots = []
+    scores = []
     for b,bot in enumerate(gameState['bots']):
         position = np.array(bot['position'])
         forward = np.array(bot['forward'])
@@ -88,9 +88,9 @@ def getBotObservation(gameState):
         orientation = getAngleFromForward(forward)
         score = int(bot['score'])
 
-        bots[b] = np.array([1, position[0], position[1], orientation])
-        scores[b] = score 
-    return bots, scores
+        bots.append(np.array([1, position[0], position[1], orientation]))
+        scores.append(score)
+    return np.array(bots), np.array(scores)
 
 
 class Observer(object):

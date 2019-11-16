@@ -18,19 +18,18 @@ from tensorflow.keras.utils import to_categorical
 # items are always in the center of a cell. only one item per cell -> one-hot encode
 
 
-NrOfBots = 8
-NrOfOtherBots = 8
-LearningRate = 1e-3
-AdvantageGamma = 0.99
+NrOfBots = 1
+MaxNrOfBots = 8
+LearningRate = 1e-2
+AdvantageGamma = 0.95
 NrOfEpochs = 10000
 WeightsFile = './model_play/weights'
-BatchSize = 1024
+BatchSize = 2048
 MaxEpisodeLength = 1100
 EpsilonDecay = 0.99
 UseEpsilonGreedy = False
 
 epsilon = 0.6
-
 
         
 
@@ -57,37 +56,37 @@ def BinaryVanillaPolicyGradientLoss(advantage):
 
 def BuildModel():
     field = Input((10, 10, 11), name='field')
-    bots = Input((32,), name='bots')
+    bots = Input((4*MaxNrOfBots,), name='bots')
 
     f = field
-    f = Conv2D(32, 1, strides=1, padding='same', activation='elu', name='conv1a')(f)
-    f = Conv2D(32, 3, strides=1, padding='same', activation='elu', name='conv1b')(f)
-    f = Conv2D(32, 3, strides=2, padding='same', activation='elu', name='conv1c')(f)
+    f = Conv2D(32, 1, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv1a')(f)
+    f = Conv2D(32, 3, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv1b')(f)
+    f = Conv2D(32, 3, strides=2, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv1c')(f)
 
-    f = Conv2D(64, 1, strides=1, padding='same', activation='elu', name='conv2a')(f)
-    f = Conv2D(64, 3, strides=1, padding='same', activation='elu', name='conv2b')(f)
-    f = Conv2D(64, 3, strides=2, padding='same', activation='elu', name='conv2c')(f)
+    f = Conv2D(64, 1, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv2a')(f)
+    f = Conv2D(64, 3, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv2b')(f)
+    f = Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv2c')(f)
 
-    f = Conv2D(128, 1, strides=1, padding='same', activation='elu', name='conv3a')(f)
-    f = Conv2D(128, 3, strides=1, padding='same', activation='elu', name='conv3b')(f)
-    f = Conv2D(128, 3, strides=2, padding='same', activation='elu', name='conv3c')(f)
+    f = Conv2D(128, 1, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv3a')(f)
+    f = Conv2D(128, 3, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv3b')(f)
+    f = Conv2D(128, 3, strides=2, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv3c')(f)
 
     f = GlobalAveragePooling2D(name='avg')(f)
 
     b = bots
-    b = Dense(128, activation='elu', name='pre1')(b)
+    b = Dense(128, activation='relu', kernel_initializer='he_uniform', name='pre1')(b)
     
     h = Concatenate(name='concat')([f, b])
-    h = Dense(512, activation='elu', name='dense1')(h)
-    h = Dense(128, activation='elu', name='dense2')(h)
+    h = Dense(512, activation='relu', kernel_initializer='he_uniform', name='dense1')(h)
+    h = Dense(128, activation='relu', kernel_initializer='he_uniform', name='dense2')(h)
     h = Dense(3, activation='softmax', name='dense3')(h)
     
-    output = h
-    model_play = Model([field, bots], output)
+    action = h
+    model_play = Model([field, bots], action)
 
 
     advantage = Input((1,), name='advantage')
-    model_train = Model([field, bots, advantage], output)
+    model_train = Model([field, bots, advantage], action)
     model_train.compile(loss=CategoricalVanillaPolicyGradientLoss(advantage), optimizer=Adam(lr=LearningRate))
 
     return model_play, model_train
@@ -126,9 +125,6 @@ except:
     pass
 
 
-
-
-
 def TrainOnBatch(observationsField, observationsBots, actions, rewards, dones):
     # Save current weights, if this training fails, then we still have a backup
     model_play.save_weights(WeightsFile)
@@ -156,20 +152,21 @@ def TrainOnBatch(observationsField, observationsBots, actions, rewards, dones):
     actions = actions.reshape((-1,)+actions.shape[2:])
     rewards = rewards.reshape((-1,)+rewards.shape[2:])
     dones = dones.reshape((-1,)+dones.shape[2:])
-    #print(observationsField.shape, observationsBots.shape, actions.shape, rewards.shape, dones.shape)
 
     # Train
     loss = model_train.train_on_batch([observationsField, observationsBots, rewards], actions)
 
 
 def CombineObservations(fieldObs, botObs):
-    fieldObservations = np.repeat([fieldObs], 8, axis=0)
+    fieldObservations = np.repeat([fieldObs], NrOfBots, axis=0)
 
     botObservations = []
     allBots = np.arange(len(botObs))
     for b,bot in enumerate(botObs):
         indices = np.insert(np.delete(allBots, b), 0, b)
-        botObservations.append(botObs[indices].flatten())
+        newObs = botObs[indices].flatten()
+        newObs = np.pad(newObs, (0, (4*MaxNrOfBots)-len(newObs)), 'constant', constant_values=0)
+        botObservations.append(newObs)
     botObservations = np.array(botObservations)
 
     return fieldObservations, botObservations
@@ -191,13 +188,11 @@ while epoch < NrOfEpochs:
 
     episodeLength = 0
     while not done and epoch < NrOfEpochs:
-        print('.', end='')
+        print('.', end='', flush=True)
 
         # Store current observation
         observationsField.append(fieldObs)
         observationsBots.append(botObs)
-
-        #print(fieldObs.shape, botObs.shape)
 
         # Select, perform action
         probs = model_play.predict([fieldObs, botObs])
@@ -213,7 +208,6 @@ while epoch < NrOfEpochs:
         #print(f'reward: {reward}')
         rewards.append(reward)
         dones.append([done] * NrOfBots)
-
 
         # Next iteration
         batchSize += 1
@@ -246,6 +240,6 @@ while epoch < NrOfEpochs:
             break
 
     if not done:
-        print('X', end='')
+        print('X', end='', flush=True)
     else:
-        print('!', end='')
+        print('!', end='', flush=True)
