@@ -25,7 +25,7 @@ import tensorflow.keras.backend as K
 
 def BuildModel():
     field = Input((10, 10, 11), name='field')
-    bots = Input((4*MaxNrOfBots,), name='bots')
+    bots = Input((3,), name='bots')
 
     f = Flatten(name='flatten')(field)
     h = Concatenate(name='concat')([f, bots])
@@ -62,18 +62,20 @@ def CombineObservations(fieldObs, botObs):
     botObservations = []
     allBots = np.arange(len(botObs))
     for b,bot in enumerate(botObs):
-        indices = np.insert(np.delete(allBots, b), 0, b)
-        newObs = botObs[indices].flatten()
-        newObs = np.pad(newObs, (0, (4*MaxNrOfBots)-len(newObs)), 'constant', constant_values=0)
+        # indices = np.insert(np.delete(allBots, b), 0, b)
+        # newObs = botObs[indices].flatten()
+        # newObs = np.pad(newObs, (0, (4*MaxNrOfBots)-len(newObs)), 'constant', constant_values=0)
+        newObs = bot[1:]
         botObservations.append(newObs)
     botObservations = np.array(botObservations)
 
     return fieldObservations, botObservations
 
 
-observationsFieldFilename = Path('sessions/observationsField.npy')
-observationsBotsFilename = Path('sessions/observationsBots.npy')
-actionsFilename = Path('sessions/actions.npy')
+sessionDir = Path('sessions')
+observationsFieldFilename = sessionDir / 'observationsField.npy'
+observationsBotsFilename = sessionDir / 'observationsBots.npy'
+actionsFilename = sessionDir / 'actions.npy'
 
 if observationsFieldFilename.exists() and observationsBotsFilename.exists() and actionsFilename.exists():
     observationsField = np.load(observationsFieldFilename)
@@ -81,16 +83,15 @@ if observationsFieldFilename.exists() and observationsBotsFilename.exists() and 
     actions = np.load(actionsFilename)
 else:
     observationsField, observationsBots, actions = [], [], []
-    for sessionDir in Path('sessions').glob('session*'):
-       for filename in sessionDir.glob('*.npy'):
-           (fieldObs, botObs), action = np.load(filename, allow_pickle=True)
-           fieldObs, botObs = CombineObservations(fieldObs, botObs)
-           action = to_categorical(action, num_classes=3)
-    
-           observationsField.append(fieldObs)
-           observationsBots.append(botObs)
-           actions.append(action)
-    
+    for filename in sessionDir.glob('*.npy'):
+        (fieldObs, botObs), action = np.load(filename, allow_pickle=True)
+        fieldObs, botObs = CombineObservations(fieldObs, botObs)
+        action = to_categorical(action, num_classes=3)
+
+        observationsField.append(fieldObs)
+        observationsBots.append(botObs)
+        actions.append(action)
+
     observationsField = np.vstack(observationsField).astype(np.float)
     observationsBots = np.vstack(observationsBots).astype(np.float)
     actions = np.array(actions).astype(np.float)
@@ -106,6 +107,6 @@ actions = actions[I]
 
 # Train
 print(observationsField.shape, observationsBots.shape, actions.shape)
-model_play.fit([observationsField, observationsBots], actions, validation_split=0.2, shuffle=True, epochs=50, verbose=2, batch_size=4096)
+model_play.fit([observationsField, observationsBots], actions, validation_split=0.2, shuffle=True, epochs=200, verbose=2, batch_size=4096)
 
 model_play.save_weights(WeightsFile)

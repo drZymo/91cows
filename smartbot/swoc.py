@@ -216,10 +216,10 @@ class BotController(object):
         self.y = np.clip(self.y, 0, 1)
 
     def turnLeft(self, id):
-        self.o[id] += 10*np.pi/180
+        self.o[id] += 3*np.pi/180
 
     def turnRight(self, id):
-        self.o[id] -= 10*np.pi/180
+        self.o[id] -= 3*np.pi/180
 
 
 
