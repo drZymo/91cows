@@ -55,7 +55,7 @@ def getFieldObservation(gameState):
         actionItemType = to_categorical(actionItemType, num_classes=7)
         
         x = int(np.floor(x * fieldWidth))
-        y = int(np.floor((1-y) * fieldHeight))
+        y = int(np.floor(y * fieldHeight))
         actionItemTypes[y, x] = actionItemType
 
     field = []
@@ -211,12 +211,15 @@ class BotController(object):
         forward = np.matmul(R, [0.0, 0.025])
         self.x[id] += forward[0] * 0.5
         self.y[id] += forward[1] * 0.5
+        # prevent leaving the arena
+        self.x = np.clip(self.x, 0, 1)
+        self.y = np.clip(self.y, 0, 1)
 
     def turnLeft(self, id):
-        self.o[id] += 3*np.pi/180
+        self.o[id] += 10*np.pi/180
 
     def turnRight(self, id):
-        self.o[id] -= 3*np.pi/180
+        self.o[id] -= 10*np.pi/180
 
 
 

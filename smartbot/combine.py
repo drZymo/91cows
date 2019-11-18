@@ -30,11 +30,13 @@ def BuildModel():
     f = Flatten(name='flatten')(field)
     h = Concatenate(name='concat')([f, bots])
     h = Dense(2048, activation='elu', kernel_initializer='he_uniform', name='dense1')(h)
-    h = Dense(4096, activation='elu', kernel_initializer='he_uniform', name='dense2')(h)
-    h = Dense(2048, activation='elu', kernel_initializer='he_uniform', name='dense3')(h)
+    h = Dense(2048, activation='elu', kernel_initializer='he_uniform', name='dense2')(h)
+    h = Dense(1024, activation='elu', kernel_initializer='he_uniform', name='dense3')(h)
     h = Dense(1024, activation='elu', kernel_initializer='he_uniform', name='dense4')(h)
-    h = Dense(128, activation='elu', kernel_initializer='he_uniform', name='dense5')(h)
-    h = Dense(3, activation='softmax', name='dense6')(h)
+    h = Dense(1024, activation='elu', kernel_initializer='he_uniform', name='dense5')(h)
+    h = Dense(1024, activation='elu', kernel_initializer='he_uniform', name='dense6')(h)
+    h = Dense(512, activation='elu', kernel_initializer='he_uniform', name='dense7')(h)
+    h = Dense(3, activation='softmax', name='dense8')(h)
     
     action = h
     model_play = Model([field, bots], action)
@@ -104,6 +106,6 @@ actions = actions[I]
 
 # Train
 print(observationsField.shape, observationsBots.shape, actions.shape)
-model_play.fit([observationsField, observationsBots], actions, validation_split=0.2, shuffle=True, epochs=50, verbose=2)
+model_play.fit([observationsField, observationsBots], actions, validation_split=0.2, shuffle=True, epochs=50, verbose=2, batch_size=4096)
 
 model_play.save_weights(WeightsFile)

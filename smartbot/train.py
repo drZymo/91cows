@@ -18,14 +18,14 @@ from tensorflow.keras.utils import to_categorical
 # items are always in the center of a cell. only one item per cell -> one-hot encode
 
 
-NrOfBots = 1
+NrOfBots = 8
 MaxNrOfBots = 8
-LearningRate = 1e-2
+LearningRate = 1e-5
 AdvantageGamma = 0.95
 NrOfEpochs = 10000
 WeightsFile = './model_play/weights'
 BatchSize = 2048
-MaxEpisodeLength = 1100
+MaxEpisodeLength = 512
 EpsilonDecay = 0.99
 UseEpsilonGreedy = False
 
@@ -34,7 +34,7 @@ epsilon = 0.6
         
 
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Dense, Conv2D, GlobalAveragePooling2D, Concatenate
+from tensorflow.keras.layers import Input, Dense, Conv2D, GlobalAveragePooling2D, Concatenate, Flatten
 from tensorflow.keras.optimizers import Adam
 import tensorflow.keras.backend as K
 
@@ -56,31 +56,43 @@ def BinaryVanillaPolicyGradientLoss(advantage):
 
 def BuildModel():
     field = Input((10, 10, 11), name='field')
-    bots = Input((4*MaxNrOfBots,), name='bots')
+    #bots = Input((4*MaxNrOfBots,), name='bots')
+    bots = Input((3,), name='bots')
 
-    f = field
-    f = Conv2D(32, 1, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv1a')(f)
-    f = Conv2D(32, 3, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv1b')(f)
-    f = Conv2D(32, 3, strides=2, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv1c')(f)
+    # f = field
+    # f = Conv2D(32, 1, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv1a')(f)
+    # f = Conv2D(32, 3, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv1b')(f)
+    # f = Conv2D(32, 3, strides=2, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv1c')(f)
 
-    f = Conv2D(64, 1, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv2a')(f)
-    f = Conv2D(64, 3, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv2b')(f)
-    f = Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv2c')(f)
+    # f = Conv2D(64, 1, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv2a')(f)
+    # f = Conv2D(64, 3, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv2b')(f)
+    # f = Conv2D(64, 3, strides=2, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv2c')(f)
 
-    f = Conv2D(128, 1, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv3a')(f)
-    f = Conv2D(128, 3, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv3b')(f)
-    f = Conv2D(128, 3, strides=2, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv3c')(f)
+    # f = Conv2D(128, 1, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv3a')(f)
+    # f = Conv2D(128, 3, strides=1, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv3b')(f)
+    # f = Conv2D(128, 3, strides=2, padding='same', activation='relu', kernel_initializer='he_uniform', name='conv3c')(f)
 
-    f = GlobalAveragePooling2D(name='avg')(f)
+    # f = GlobalAveragePooling2D(name='avg')(f)
 
-    b = bots
-    b = Dense(128, activation='relu', kernel_initializer='he_uniform', name='pre1')(b)
+    # b = bots
+    # b = Dense(128, activation='relu', kernel_initializer='he_uniform', name='pre1')(b)
     
-    h = Concatenate(name='concat')([f, b])
-    h = Dense(512, activation='relu', kernel_initializer='he_uniform', name='dense1')(h)
-    h = Dense(128, activation='relu', kernel_initializer='he_uniform', name='dense2')(h)
-    h = Dense(3, activation='softmax', name='dense3')(h)
+    # h = Concatenate(name='concat')([f, b])
+    # h = Dense(512, activation='relu', kernel_initializer='he_uniform', name='dense1')(h)
+    # h = Dense(128, activation='relu', kernel_initializer='he_uniform', name='dense2')(h)
+    # h = Dense(3, activation='softmax', name='dense3')(h)
     
+    f = Flatten(name='flatten')(field)
+    h = Concatenate(name='concat')([f, bots])
+    h = Dense(2048, activation='elu', kernel_initializer='he_uniform', name='dense1')(h)
+    h = Dense(2048, activation='elu', kernel_initializer='he_uniform', name='dense2')(h)
+    h = Dense(1024, activation='elu', kernel_initializer='he_uniform', name='dense3')(h)
+    h = Dense(1024, activation='elu', kernel_initializer='he_uniform', name='dense4')(h)
+    h = Dense(1024, activation='elu', kernel_initializer='he_uniform', name='dense5')(h)
+    h = Dense(1024, activation='elu', kernel_initializer='he_uniform', name='dense6')(h)
+    h = Dense(512, activation='elu', kernel_initializer='he_uniform', name='dense7')(h)
+    h = Dense(3, activation='softmax', name='dense8')(h)
+
     action = h
     model_play = Model([field, bots], action)
 
@@ -163,9 +175,10 @@ def CombineObservations(fieldObs, botObs):
     botObservations = []
     allBots = np.arange(len(botObs))
     for b,bot in enumerate(botObs):
-        indices = np.insert(np.delete(allBots, b), 0, b)
-        newObs = botObs[indices].flatten()
-        newObs = np.pad(newObs, (0, (4*MaxNrOfBots)-len(newObs)), 'constant', constant_values=0)
+        # indices = np.insert(np.delete(allBots, b), 0, b)
+        # newObs = botObs[indices].flatten()
+        # newObs = np.pad(newObs, (0, (4*MaxNrOfBots)-len(newObs)), 'constant', constant_values=0)
+        newObs = bot[1:]
         botObservations.append(newObs)
     botObservations = np.array(botObservations)
 

@@ -102,7 +102,7 @@ from pyglet.window import mouse
 observer = Observer()
 
 width, height = 800, 800
-window = pyglet.window.Window(width=width, height=height)
+window = pyglet.window.Window(width=width+50, height=height+50)
 
 rawImage = DrawImage(observer.getObservation(), width, height)
 
