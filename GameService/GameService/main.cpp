@@ -7,10 +7,26 @@
 
 #include <QCoreApplication>
 #include <QJsonDocument>
+#include <QCommandLineParser>
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
+
+    QCoreApplication::setApplicationName("GameService");
+    QCoreApplication::setApplicationVersion("1.0");
+
+    QCommandLineParser parser;
+    parser.addHelpOption();
+    parser.addVersionOption();
+    QCommandLineOption portOffsetOption(QStringList() << "p" << "port-offset",
+            QCoreApplication::translate("main", "Add <offset> to port numbers."),
+            QCoreApplication::translate("main", "<offset>"),
+            "0");
+    parser.addOption(portOffsetOption);
+    parser.process(app);
+
+    int portOffset = parser.value(portOffsetOption).toInt();
 
     TeamSettings teamSettings;
     BotTrackingServiceSocket botTrackingServiceSocket(teamSettings);
@@ -18,7 +34,7 @@ int main(int argc, char *argv[])
     RemoteControllerSocket remoteControllerSocket(teamSettings);
     VisualizationSocket visualizationSocket;
 
-    if (botTrackingServiceSocket.listen(QHostAddress::Any, static_cast<quint16>(9635)))
+    if (botTrackingServiceSocket.listen(QHostAddress::Any, static_cast<quint16>(9635 + portOffset)))
     {
         qDebug() << "BotTrackingServiceSocket listening";
     }
@@ -27,7 +43,7 @@ int main(int argc, char *argv[])
         qDebug() << "BotTrackingServiceSocket not listening";
     }
 
-    if (botClientSockets.listen(QHostAddress::Any, static_cast<quint16>(9735)))
+    if (botClientSockets.listen(QHostAddress::Any, static_cast<quint16>(9735 + portOffset)))
     {
         qDebug() << "BotClientSockets listening";
     }
@@ -35,7 +51,7 @@ int main(int argc, char *argv[])
     {
         qDebug() << "BotClientSockets not listening";
     }
-    if (visualizationSocket.listen(QHostAddress::Any, static_cast<quint16>(9835)))
+    if (visualizationSocket.listen(QHostAddress::Any, static_cast<quint16>(9835 + portOffset)))
     {
         qDebug() << "VisualizationSocket listening";
     }
@@ -43,7 +59,7 @@ int main(int argc, char *argv[])
     {
         qDebug() << "VisualizationSocket not listening";
     }
-    if (remoteControllerSocket.listen(QHostAddress::Any, static_cast<quint16>(9935)))
+    if (remoteControllerSocket.listen(QHostAddress::Any, static_cast<quint16>(9935 + portOffset)))
     {
         qDebug() << "RemoteControllerSocket listening";
     }
