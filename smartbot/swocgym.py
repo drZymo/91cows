@@ -1,31 +1,17 @@
 import gym
 from gym import error, spaces, utils
-from swoc import SwocEnv
+from swoc1 import SwocEnv
 import numpy as np
 from draw import DrawObservation
-
-def CombineObservations(fieldObs, botObs):
-    fieldObservations = np.repeat([fieldObs], 1, axis=0)
-
-    botObservations = []
-    allBots = np.arange(len(botObs))
-    for b,bot in enumerate(botObs):
-        newObs = bot[1:]
-        botObservations.append(newObs)
-    botObservations = np.array(botObservations)
-    fieldObservations = fieldObservations.reshape(1, -1)
-
-    obs = np.hstack([fieldObservations, botObservations])
-    return obs[0]
 
 class SwocGym(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self):
+    def __init__(self, botId, portOffset):
         super(SwocGym, self).__init__()
         self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(0, 1, shape=(1103,))
-        self.env = SwocEnv('localhost', nrOfBots=1)
+        self.env = SwocEnv(botId, hostname='localhost', portOffset=portOffset)
         self.viewer = None
 
     def close(self):
@@ -35,18 +21,18 @@ class SwocGym(gym.Env):
         fieldObs, botObs = self.env.reset(10, 10)
         self.lastFieldObs = fieldObs
         self.lastBotObs = botObs
-        obs = CombineObservations(fieldObs, botObs)
+        obs = np.hstack([fieldObs.flatten(), botObs])
         return obs
 
     def step(self, action):
-        (fieldObs, botObs), reward, done = self.env.step([action])
+        (fieldObs, botObs), reward, done = self.env.step(action)
         self.lastFieldObs = fieldObs
         self.lastBotObs = botObs
-        obs = CombineObservations(fieldObs, botObs)
+        obs = np.hstack([fieldObs.flatten(), botObs])
         return obs, reward, done, dict()
 
     def render(self, mode='human'):
-        img = np.array(DrawObservation((self.lastFieldObs, self.lastBotObs), 500, 500))
+        img = np.array(DrawObservation((self.lastFieldObs, self.lastBotObs), 240, 240))
         img = np.expand_dims(img, axis=-1)
         img = np.repeat(img, 3, axis=-1)
         if mode == 'rgb_array':
