@@ -20,11 +20,11 @@ from tensorflow.keras.utils import to_categorical
 
 NrOfBots = 8
 MaxNrOfBots = 8
-LearningRate = 1e-5
+LearningRate = 1e-3
 AdvantageGamma = 0.95
 NrOfEpochs = 10000
 WeightsFile = './model_play/weights'
-BatchSize = 2048
+BatchSize = 1024
 MaxEpisodeLength = 512
 EpsilonDecay = 0.99
 UseEpsilonGreedy = False
@@ -196,7 +196,7 @@ epochStart = datetime.now()
 
 while epoch < NrOfEpochs:
     # Run one episode
-    (fieldObs, botObs), done = env.reset(), False
+    (fieldObs, botObs), done = env.reset(10, 10), False
     fieldObs, botObs = CombineObservations(fieldObs, botObs)
 
     episodeLength = 0

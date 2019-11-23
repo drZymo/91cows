@@ -54,7 +54,7 @@ def DrawObservation(obs, width, height):
         if not bot[0]: return
 
         position = bot[1:3]
-        orientation = bot[3]
+        orientation = bot[3] * 2*np.pi
         
         c, s = np.cos(orientation), np.sin(orientation)
         R = np.array(((c, -s), (s, c)))
@@ -86,4 +86,4 @@ def DrawObservation(obs, width, height):
         DrawBot(bot)
 
     del draw
-    return im.tobytes()
+    return im

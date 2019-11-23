@@ -4,9 +4,6 @@ import json
 from tensorflow.keras.utils import to_categorical  
 from time import sleep
 
-MaxNrOfBots = 8
-MaxBotActionRepeat = 100
-TooManyActionRepeatsReward = -1
 SamePlaceRadius = 0.01
 MaxNotMovedCount = 70 # 3 * 70 = 210 degrees
 NotMovedReward = -1
@@ -83,18 +80,20 @@ def getAngleFromForward(forward):
 
 
 def getBotObservation(gameState):
-    bots = []
-    scores = []
-    for b,bot in enumerate(gameState['bots']):
+    bots = dict()
+    scores = dict()
+    for bot in gameState['bots']:
+        botId = int(bot['arucoId'])
         position = np.array(bot['position'])
         forward = np.array(bot['forward'])
         right = np.array(bot['right'])
         orientation = getAngleFromForward(forward)
         score = int(bot['score'])
 
-        bots.append(np.array([1, position[0], position[1], orientation]))
-        scores.append(score)
-    return np.array(bots), np.array(scores)
+        bot = np.array([position[0], position[1], orientation])
+        bots[botId] = bot
+        scores[botId] = score
+    return bots, scores
 
 
 class Observer(object):
@@ -178,19 +177,16 @@ class GameController(object):
 
 
 class BotController(object):
-    def __init__(self, hostname='localhost', portOffset=0, nrOfBots=1):
+    def __init__(self, botId, hostname='localhost', portOffset=0):
+        self.botId = botId
         self.hostname = hostname
         self.portOffset = portOffset
-        self.nrOfBots = nrOfBots
 
     def reset(self, fieldWidth, fieldHeight):
-        self.x = np.random.randint(0, fieldWidth, (self.nrOfBots,))
-        self.y = np.random.randint(0, fieldHeight, (self.nrOfBots,))
+        self.xy = np.random.randint(0, fieldWidth, (2,))
+        self.xy = (self.xy + 0.5) / [fieldWidth, fieldHeight]
 
-        self.x = (self.x + 0.5) / fieldWidth 
-        self.y = (self.y + 0.5) / fieldHeight 
-
-        self.o = np.random.uniform(0, 2*np.pi, (self.nrOfBots,))
+        self.o = np.random.uniform(0, 2*np.pi)
         self.sendUpdate()
 
     def _sendRobotsState(self, robots):
@@ -199,122 +195,97 @@ class BotController(object):
             serialized = json.dumps(robots)
             sock.sendall(serialized.encode('utf-8'))
 
-    def sendUpdate(self):
-        robots = []
-        for b in range(self.nrOfBots):
-            robot = dict()
-            robot['robot'] = dict()
-            robot['robot']["arucoId"] = b+1
-            robot['robot']["position"] = [self.x[b], self.y[b]]
+    def _sendUpdate(self):
+        # x = x cos r - y sin r
+        # y = x sin r + y cos r
+        c, s = np.cos(self.o), np.sin(self.o)
+        R = np.array(((c, -s), (s, c)))
+        robot = {
+            'arucoId': self.botId,
+            'position': self.xy,
+            'xorient': np.matmul(R, [0.025, 0.0]).tolist(),
+            'yorient': np.matmul(R, [0.0, 0.025]).tolist()
+        }
+        self._sendRobotsState([{'robot': robot}])
 
-            # x = x cos r - y sin r
-            # y = x sin r + y cos r
-            c, s = np.cos(self.o[b]), np.sin(self.o[b])
-            R = np.array(((c, -s), (s, c)))
-            robot['robot']["xorient"] = np.matmul(R, [0.025, 0.0]).tolist()
-            robot['robot']["yorient"] = np.matmul(R, [0.0, 0.025]).tolist()
-            robots.append(robot)
-        self._sendRobotsState(robots)
-
-    def moveForward(self, id):
-        c, s = np.cos(self.o[id]), np.sin(self.o[id])
+    def moveForward(self):
+        c, s = np.cos(self.o), np.sin(self.o)
         R = np.array(((c, -s), (s, c)))
         forward = np.matmul(R, [0.0, 0.025])
-        self.x[id] += forward[0] * 0.5
-        self.y[id] += forward[1] * 0.5
+        self.xy += forward * 0.5
         # prevent leaving the arena
-        self.x = np.clip(self.x, 0, 1)
-        self.y = np.clip(self.y, 0, 1)
+        self.xy = np.clip(self.xy, 0, 1)
+        self._sendUpdate()
 
-    def turnLeft(self, id):
-        self.o[id] += 3*np.pi/180
+    def turnLeft(self):
+        self.o += 3*np.pi/180
+        self._sendUpdate()
 
-    def turnRight(self, id):
-        self.o[id] -= 3*np.pi/180
-
+    def turnRight(self):
+        self.o -= 3*np.pi/180
+        self._sendUpdate()
 
 
 class SwocEnv(object):
-    def __init__(self, hostname='localhost', portOffset=0, nrOfBots=1):
+    def __init__(self, botId, hostname='localhost', portOffset=0):
         self.game = GameController(hostname, portOffset)
-        self.bot = BotController(hostname, portOffset, nrOfBots)
+        self.bot = BotController(botId, hostname, portOffset)
         self.observer = Observer(hostname, portOffset)
-        self.nrOfBots = nrOfBots
 
-        self.previousScores = np.zeros((self.nrOfBots, ))
+        self.previousScore = 0
         self.done = False
-        self.lastBotAction = np.array([-1] * self.nrOfBots)
-        self.lastBotActionCount = np.zeros((self.nrOfBots,))
-        self.lastBotPosition = np.zeros((self.nrOfBots, 2))
-        self.lastBotPositionCount = np.zeros((self.nrOfBots,))
+        self.lastBotPosition = np.zeros((2,))
+        self.lastBotPositionCount = 0
 
 
     def reset(self, fieldWidth, fieldHeight):
         self.game.createGame(fieldWidth, fieldHeight)
         self.bot.reset(fieldWidth, fieldHeight)
         self.game.startGame()
-        field, bots, scores, gameTick = self.observer.getObservation()
-        obs = (field, bots)
+        field, bots, score, gameTick = self.observer.getObservation()
+        obs = (field, bots[self.botId])
 
-        self.previousScores = scores[:self.nrOfBots]
+        self.previousScore = score
         self.done = False
-        self.lastBotAction = np.array([-1] * self.nrOfBots)
-        self.lastBotActionCount = np.zeros((self.nrOfBots,))
-        self.lastBotPosition = np.zeros((self.nrOfBots, 2))
-        self.lastBotPositionCount = np.zeros((self.nrOfBots,))
-
+        self.lastBotPosition = np.zeros((2,))
+        self.lastBotPositionCount = 0
         return obs
     
     def step(self, action):
         if self.done: raise "Game done; reset first"
         
-        for b,act in enumerate(action):
-            # Perform this action
-            if act == 0:
-                self.bot.moveForward(b)
-            elif act == 1:
-                self.bot.turnLeft(b)
-            elif act == 2:
-                self.bot.turnRight(b)
-
-            # Remember how many times this action was performed
-            if act == self.lastBotAction[b]:
-                self.lastBotActionCount[b] += 1
-            else:
-                self.lastBotActionCount[b] = 0
-            self.lastBotAction[b] = act
-        self.bot.sendUpdate()
+        # Perform this action
+        if action == 0:
+            self.bot.moveForward()
+        elif action == 1:
+            self.bot.turnLeft()
+        elif action == 2:
+            self.bot.turnRight()
         
-        field, bots, scores, gameTick = self.observer.getObservation()
-        obs = (field, bots)
-        rewards = scores[:self.nrOfBots] - self.previousScores
-        self.previousScores = scores[:self.nrOfBots]
+        field, bots, score, gameTick = self.observer.getObservation()
+        bot = bots[botId]
+        obs = (field, bot)
+        reward = score - self.previousScore
+        self.previousScore = score
 
         # End game if negative reward (e.g. hit wall)
         if EndOnNegativeReward and np.any(rewards < 0):
             self.done = True
         else:
-            # Punish if same action was performed too many times
-            #tooManyRepeats = (self.lastBotActionCount > MaxBotActionRepeat)
-            #rewards += tooManyRepeats * TooManyActionRepeatsReward
-
-            ## Increase weight of positive rewards
-            #rewards = rewards + (((rewards > 0) * rewards) * 4)
-
-            # Keep track if bot hasn't moved for a while
-            for b,botPosition in enumerate(bots[:,1:3]):
-                distance = np.sqrt(np.sum((botPosition - self.lastBotPosition[b])**2))
-                if (distance < SamePlaceRadius):
-                    self.lastBotPositionCount[b] += 1
-                else:
-                    self.lastBotPosition[b] = botPosition
-                    self.lastBotPositionCount[b] = 0
+            # Check if bot hasn't moved for a while
+            botPosition = bot[0:2]
+            distance = np.linalg.norm(botPosition - self.lastBotPosition)
+            if (distance < SamePlaceRadius):
+                self.lastBotPositionCount += 1
+            else:
+                self.lastBotPosition = botPosition
+                self.lastBotPositionCount = 0
 
             # Punish if bot didn't move for a while
             notMoved = (self.lastBotPositionCount > MaxNotMovedCount)
-            rewards += notMoved * NotMovedReward
+            reward += notMoved * NotMovedReward
 
         if self.done:
             self.game.stopGame()
 
-        return obs, rewards, self.done
+        return obs, reward, self.done

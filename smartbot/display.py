@@ -13,7 +13,7 @@ width, height = 800, 800
 window = pyglet.window.Window(width=width, height=height)
 rawImage = DrawObservation(GetObservation(), width, height)
 
-image = pyglet.image.ImageData(width, height, 'L', rawImage, pitch=-width)
+image = pyglet.image.ImageData(width, height, 'L', rawImage.tobytes(), pitch=-width)
 
 @window.event
 def on_draw():
@@ -21,7 +21,7 @@ def on_draw():
 
 def update(dt):
     rawImage = DrawObservation(GetObservation(), width, height)
-    image.set_data(fmt='L', data=rawImage, pitch=-width)
+    image.set_data(fmt='L', data=rawImage.tobytes(), pitch=-width)
 
 pyglet.clock.schedule_interval(update, 0.05)
 

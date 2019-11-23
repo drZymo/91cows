@@ -8,10 +8,10 @@ env = SwocEnv(nrOfBots=1)
 width, height = 800, 800
 window = pyglet.window.Window(width=width, height=height)
 
-obs, totalReward, done  = env.reset(), 0, False
+obs, totalReward, done  = env.reset(10, 10), 0, False
 rawImage = DrawObservation(obs, width, height)
 
-image = pyglet.image.ImageData(width, height, 'L', rawImage, pitch=-width)
+image = pyglet.image.ImageData(width, height, 'L', rawImage.tobytes(), pitch=-width)
 
 @window.event
 def on_draw():
@@ -19,7 +19,7 @@ def on_draw():
 
 def update(dt):
     rawImage = DrawObservation(obs, width, height)
-    image.set_data(fmt='L', data=rawImage, pitch=-width)
+    image.set_data(fmt='L', data=rawImage.tobytes(), pitch=-width)
 
 @window.event
 def on_key_press(symbol, modifiers):
