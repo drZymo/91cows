@@ -183,11 +183,11 @@ class BotController(object):
         self.portOffset = portOffset
 
     def reset(self, fieldWidth, fieldHeight):
-        self.xy = np.random.randint(0, fieldWidth, (2,))
+        self.xy = np.array([np.random.randint(0, fieldWidth), np.random.randint(0, fieldHeight)])
         self.xy = (self.xy + 0.5) / [fieldWidth, fieldHeight]
 
         self.o = np.random.uniform(0, 2*np.pi)
-        self.sendUpdate()
+        self._sendUpdate()
 
     def _sendRobotsState(self, robots):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -202,7 +202,7 @@ class BotController(object):
         R = np.array(((c, -s), (s, c)))
         robot = {
             'arucoId': self.botId,
-            'position': self.xy,
+            'position': self.xy.tolist(),
             'xorient': np.matmul(R, [0.025, 0.0]).tolist(),
             'yorient': np.matmul(R, [0.0, 0.025]).tolist()
         }
@@ -228,6 +228,7 @@ class BotController(object):
 
 class SwocEnv(object):
     def __init__(self, botId, hostname='localhost', portOffset=0):
+        self.botId = botId
         self.game = GameController(hostname, portOffset)
         self.bot = BotController(botId, hostname, portOffset)
         self.observer = Observer(hostname, portOffset)
@@ -242,8 +243,10 @@ class SwocEnv(object):
         self.game.createGame(fieldWidth, fieldHeight)
         self.bot.reset(fieldWidth, fieldHeight)
         self.game.startGame()
-        field, bots, score, gameTick = self.observer.getObservation()
-        obs = (field, bots[self.botId])
+        field, bots, scores, gameTick = self.observer.getObservation()
+        bot = bots[self.botId]
+        score = scores[self.botId]
+        obs = (field, bot)
 
         self.previousScore = score
         self.done = False
@@ -262,8 +265,9 @@ class SwocEnv(object):
         elif action == 2:
             self.bot.turnRight()
         
-        field, bots, score, gameTick = self.observer.getObservation()
-        bot = bots[botId]
+        field, bots, scores, gameTick = self.observer.getObservation()
+        bot = bots[self.botId]
+        score = scores[self.botId]
         obs = (field, bot)
         reward = score - self.previousScore
         self.previousScore = score
