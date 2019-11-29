@@ -3,12 +3,14 @@ import socket
 import json
 from tensorflow.keras.utils import to_categorical  
 from time import sleep
+import subprocess
 
 SamePlaceRadius = 0.01
-MaxNotMovedCount = 70 # 3 * 70 = 210 degrees
+MaxNotMovedCount = 120 # 3 deg/step * 120 = 360 degrees
 NotMovedReward = -1
-EndOnNegativeReward = False
-
+EndOnNegativeReward = True
+DiscretePosition = 1/8
+DiscreteAngle = np.pi/2/8
 
 ActionItemTypes = {
     'Coin': 0,
@@ -133,30 +135,45 @@ class Observer(object):
 
 
 class GameController(object):
-    def __init__(self, hostname='localhost', portOffset=0):
+    def __init__(self, gameservicePath, hostname='localhost', portOffset=0):
+        self.gameservicePath = gameservicePath
         self.hostname = hostname
         self.portOffset = portOffset
+        self.process = None
+
+    def __del__(self):
+        if self.process is not None:
+            self.process.kill()
+            self.process = None
 
     def _sendRemoteControllerCommand(self, command):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((self.hostname, 9935+self.portOffset))
             serialized = json.dumps(command)
             sock.sendall(serialized.encode('utf-8'))
-        sleep(0.1)
+        sleep(0.05)
 
     def createGame(self, fieldWidth, fieldHeight):
+        if self.process is not None:
+            self.process.kill()
+            self.process = None
+
+        # start a new process
+        self.process = subprocess.Popen([self.gameservicePath, f'-p {self.portOffset}'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        sleep(0.1) # give it some time to start
+
         #print('Creating game')
         command = {
             'commandType': 'createGame',
             'gameOptions': {
                 'mazeSize': [fieldWidth, fieldHeight],
                 'numberOfActionItems': {
-                    'Bottle': 4,
+                    'Bottle': 0, # was 4
                     'Coin': 10,
-                    'EmptyChest': 1,
-                    'MimicChest': 1,
-                    'SpikeTrap': 4,
-                    'TestTube': 4,
+                    'EmptyChest': 0, # was 1
+                    'MimicChest': 0, # was 1
+                    'SpikeTrap': 0, # was 4
+                    'TestTube': 0, # was 4
                     'TreasureChest': 2
                 },
                 'numberOfWallsToRemove': 20,
@@ -175,6 +192,10 @@ class GameController(object):
         command = {'commandType': 'stopGame'}
         self._sendRemoteControllerCommand(command)
 
+        # stop the process
+        self.process.kill()
+        self.process = None
+
 
 class BotController(object):
     def __init__(self, botId, hostname='localhost', portOffset=0):
@@ -183,10 +204,17 @@ class BotController(object):
         self.portOffset = portOffset
 
     def reset(self, fieldWidth, fieldHeight):
-        self.xy = np.array([np.random.randint(0, fieldWidth), np.random.randint(0, fieldHeight)])
-        self.xy = (self.xy + 0.5) / [fieldWidth, fieldHeight]
+        self.fieldWidth = fieldWidth
+        self.fieldHeight = fieldHeight
+        self.x = np.random.uniform(0, fieldWidth)
+        self.y = np.random.uniform(0, fieldHeight)
+        self.o = np.random.uniform(-np.pi, np.pi)
 
-        self.o = np.random.uniform(0, 2*np.pi)
+        # start in center of cell and at 90 degree angles
+        self.x = np.floor(self.x) + 0.5
+        self.y = np.floor(self.y) + 0.5
+        self.o = np.round(self.o / (np.pi/2)) * (np.pi/2)
+
         self._sendUpdate()
 
     def _sendRobotsState(self, robots):
@@ -196,13 +224,30 @@ class BotController(object):
             sock.sendall(serialized.encode('utf-8'))
 
     def _sendUpdate(self):
+        # Clip angle
+        if self.o < -np.pi: self.o += 2*np.pi
+        if self.o > np.pi: self.o -= 2*np.pi
+        
+        # Prevent leaving the arena
+        self.x = np.clip(self.x, 0, self.fieldWidth)
+        self.y = np.clip(self.y, 0, self.fieldHeight)
+        
+        # Discrete position and angle
+        self.x = np.round(self.x / DiscretePosition) * DiscretePosition
+        self.y = np.round(self.y / DiscretePosition) * DiscretePosition
+        self.o = np.round(self.o / DiscreteAngle) * DiscreteAngle
+
+        # Convert to robot positions
+        x = self.x / self.fieldWidth
+        y = self.y / self.fieldHeight
+
         # x = x cos r - y sin r
         # y = x sin r + y cos r
         c, s = np.cos(self.o), np.sin(self.o)
         R = np.array(((c, -s), (s, c)))
         robot = {
             'arucoId': self.botId,
-            'position': self.xy.tolist(),
+            'position': [x, y],
             'xorient': np.matmul(R, [0.025, 0.0]).tolist(),
             'yorient': np.matmul(R, [0.0, 0.025]).tolist()
         }
@@ -211,25 +256,24 @@ class BotController(object):
     def moveForward(self):
         c, s = np.cos(self.o), np.sin(self.o)
         R = np.array(((c, -s), (s, c)))
-        forward = np.matmul(R, [0.0, 0.025])
-        self.xy += forward * 0.5
-        # prevent leaving the arena
-        self.xy = np.clip(self.xy, 0, 1)
+        forward = np.matmul(R, [0.0, DiscretePosition])
+        self.x += forward[0]
+        self.y += forward[1]
         self._sendUpdate()
 
     def turnLeft(self):
-        self.o += 3*np.pi/180
+        self.o += DiscreteAngle
         self._sendUpdate()
 
     def turnRight(self):
-        self.o -= 3*np.pi/180
+        self.o -= DiscreteAngle
         self._sendUpdate()
 
 
 class SwocEnv(object):
-    def __init__(self, botId, hostname='localhost', portOffset=0):
+    def __init__(self, botId, gameservicePath, hostname='localhost', portOffset=0):
         self.botId = botId
-        self.game = GameController(hostname, portOffset)
+        self.game = GameController(gameservicePath, hostname, portOffset)
         self.bot = BotController(botId, hostname, portOffset)
         self.observer = Observer(hostname, portOffset)
 
@@ -238,6 +282,10 @@ class SwocEnv(object):
         self.lastBotPosition = np.zeros((2,))
         self.lastBotPositionCount = 0
 
+    def close(self):
+        self.observer.close()
+        self.bot.close()
+        self.game.close()
 
     def reset(self, fieldWidth, fieldHeight):
         self.game.createGame(fieldWidth, fieldHeight)
@@ -248,9 +296,11 @@ class SwocEnv(object):
         score = scores[self.botId]
         obs = (field, bot)
 
+        botPosition = bot[0:2]
+
         self.previousScore = score
         self.done = False
-        self.lastBotPosition = np.zeros((2,))
+        self.lastBotPosition = botPosition
         self.lastBotPositionCount = 0
         return obs
     
@@ -264,30 +314,36 @@ class SwocEnv(object):
             self.bot.turnLeft()
         elif action == 2:
             self.bot.turnRight()
-        
+
+        # Get and convert new observation        
         field, bots, scores, gameTick = self.observer.getObservation()
         bot = bots[self.botId]
         score = scores[self.botId]
         obs = (field, bot)
+
+        # Compute reward
         reward = score - self.previousScore
         self.previousScore = score
 
-        # End game if negative reward (e.g. hit wall)
-        if EndOnNegativeReward and np.any(rewards < 0):
-            self.done = True
+        # Check if bot hasn't moved for a while
+        botPosition = bot[0:2]
+        distance = np.linalg.norm(botPosition - self.lastBotPosition)
+        if (distance < SamePlaceRadius):
+            self.lastBotPositionCount += 1
         else:
-            # Check if bot hasn't moved for a while
-            botPosition = bot[0:2]
-            distance = np.linalg.norm(botPosition - self.lastBotPosition)
-            if (distance < SamePlaceRadius):
-                self.lastBotPositionCount += 1
-            else:
-                self.lastBotPosition = botPosition
-                self.lastBotPositionCount = 0
+            self.lastBotPosition = botPosition
+            self.lastBotPositionCount = 0
+        # Punish if bot didn't move for a while
+        notMoved = (self.lastBotPositionCount > MaxNotMovedCount)
+        reward += notMoved * NotMovedReward
 
-            # Punish if bot didn't move for a while
-            notMoved = (self.lastBotPositionCount > MaxNotMovedCount)
-            reward += notMoved * NotMovedReward
+        # Stop if episode takes too long (1 tick every 50 ms) => 20 ticks/second => 6000 ticks = 300 seconds = 5 minutes
+        if gameTick > 6000:
+            self.done = True
+
+        # End game if negative reward (e.g. hit wall)
+        if EndOnNegativeReward and reward < 0:
+            self.done = True
 
         if self.done:
             self.game.stopGame()

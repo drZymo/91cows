@@ -3,7 +3,9 @@ from draw import DrawObservation
 import pyglet
 from pyglet.window import key
 
-env = SwocEnv(botId=1)
+GameServicePath = '../../build/GameService/GameService'
+
+env = SwocEnv(1, GameServicePath)
 
 width, height = 800, 800
 window = pyglet.window.Window(width=width, height=height)
@@ -24,17 +26,25 @@ def update(dt):
 @window.event
 def on_key_press(symbol, modifiers):
     global obs, reward, done, totalReward, index
+
+    for _ in range(8):
+        reward = 0
+        if symbol == key.UP:
+            obs, reward, done = env.step(0)
+        elif symbol == key.RIGHT:
+            obs, reward, done = env.step(1)
+        elif symbol == key.LEFT:
+            obs, reward, done = env.step(2)
+
+        if reward != 0:
+            print(f'reward: {reward}')
+        totalReward += reward
+
+        if reward < 0 or done:
+            break
+
     if done:
-        obs, totalReward, done  = env.reset(), 0, False
-    if symbol == key.UP:
-        obs, reward, done = env.step(0)
-        totalReward += reward
-    elif symbol == key.RIGHT:
-        obs, reward, done = env.step(1)
-        totalReward += reward
-    elif symbol == key.LEFT:
-        obs, reward, done = env.step(2)
-        totalReward += reward
+        obs, totalReward, done  = env.reset(10, 10), 0, False
 
 pyglet.clock.schedule_interval(update, 0.05)
 
