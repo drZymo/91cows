@@ -27,7 +27,7 @@ def update(dt):
 def on_key_press(symbol, modifiers):
     global obs, reward, done, totalReward, index
 
-    for _ in range(8):
+    for _ in range(4):
         reward = 0
         if symbol == key.UP:
             obs, reward, done = env.step(0)

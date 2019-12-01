@@ -9,8 +9,8 @@ SamePlaceRadius = 0.01
 MaxNotMovedCount = 120 # 3 deg/step * 120 = 360 degrees
 NotMovedReward = -1
 EndOnNegativeReward = True
-DiscretePosition = 1/8
-DiscreteAngle = np.pi/2/8
+DiscretePosition = 1/4
+DiscreteAngle = np.pi/2/4
 
 ActionItemTypes = {
     'Coin': 0,
@@ -142,6 +142,11 @@ class GameController(object):
         self.process = None
 
     def __del__(self):
+        if self.process is not None:
+            self.process.kill()
+            self.process = None
+
+    def close(self):
         if self.process is not None:
             self.process.kill()
             self.process = None
@@ -283,8 +288,8 @@ class SwocEnv(object):
         self.lastBotPositionCount = 0
 
     def close(self):
-        self.observer.close()
-        self.bot.close()
+        #self.observer.close()
+        #self.bot.close()
         self.game.close()
 
     def reset(self, fieldWidth, fieldHeight):

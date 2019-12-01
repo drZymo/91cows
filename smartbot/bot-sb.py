@@ -1,4 +1,3 @@
-from stable_baselines.common.policies import MlpPolicy
 from stable_baselines.common.vec_env import SubprocVecEnv
 from stable_baselines import PPO2
 from swocgym import SwocGym
@@ -42,8 +41,8 @@ def callback(locals, globals):
 def main():
      env = SubprocVecEnv([(lambda i=i: SwocGym(i+1, GameServicePath, i)) for i in range(16)])
      try:
-          model = PPO2(MlpPolicy, env, verbose=1, policy_kwargs={'layers': [1024,512,256,128,64]},
-                         n_steps=64, noptepochs=2, learning_rate=1e-4)
+          model = PPO2("MlpPolicy", env, verbose=1, policy_kwargs={'net_arch': [1024,512,256,128,64], 'act_fun': tf.nn.relu},
+                         n_steps=512, ent_coef=0.0, learning_rate=3e-5, tensorboard_log='/home/ralph/swoc2019/log')
           if SaveFile.exists():
                print('loading...')
                model.load_parameters(SaveFile)
@@ -52,13 +51,19 @@ def main():
                with open(RewardsLog, 'w+') as file:
                     file.write('')
 
-          print('learning...')
-          model.learn(total_timesteps=100000000, callback=callback)
+          try:
+               print('learning...')
+               model.learn(total_timesteps=100000000, callback=callback, reset_num_timesteps=False)
 
-          print('evaluating...', end='')
-          totalRewards = evaluate(env, model)
-          print(f'mean reward: {np.mean(totalRewards)}')
-     except:
+               print('evaluating...', end='')
+               totalRewards = evaluate(env, model)
+               print(f'mean reward: {np.mean(totalRewards)}')
+          finally:
+               print('saving...')
+               model.save(SaveFile)
+               print('saved!')
+
+     finally:
           env.close()
 
 
