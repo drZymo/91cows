@@ -13,20 +13,10 @@ SaveFile = Path('saved_model.zip')
 SaveEvery = 20
 GameServicePath = Path.cwd()/'..'/'..'/'build'/'GameService'/'GameService'
 
-def evaluate(env, model):
-     obs = env.reset()
-     totalRewards = None
-     for i in range(1000):
-          action, _states = model.predict(obs)
-          obs, rewards, dones, info = env.step(action)
-          totalRewards = totalRewards + rewards if totalRewards is not None else rewards
-          env.render()
-     return totalRewards
-
 def callback(locals, globals):
      # log the total reward of this batch
      batchReward = np.sum(locals['true_reward'])
-     print(f'batchReward: {batchReward}')
+     print(f'batchReward: {batchReward:.1f}')
      with open(RewardsLog, 'a+') as file:
           file.write(f'{int(batchReward)}\n')
 
@@ -39,10 +29,10 @@ def callback(locals, globals):
      return True
 
 def main():
-     env = SubprocVecEnv([(lambda i=i: SwocGym(i+1, GameServicePath, i)) for i in range(16)])
+     env = SubprocVecEnv([(lambda i=i: SwocGym(i+1, GameServicePath, i, actionRepeat=4, oneTarget=True)) for i in range(16)])
      try:
-          model = PPO2("MlpPolicy", env, verbose=1, policy_kwargs={'net_arch': [1024,512,256,128,64], 'act_fun': tf.nn.relu},
-                         n_steps=512, ent_coef=0.0, learning_rate=3e-5, tensorboard_log='/home/ralph/swoc2019/log')
+          model = PPO2("MlpPolicy", env, verbose=1, policy_kwargs={'net_arch': [256,256,256,128,128,128], 'act_fun': tf.nn.relu},
+                         n_steps=32, ent_coef=0.1, learning_rate=1e-4, tensorboard_log='/home/ralph/swoc2019/log')
           if SaveFile.exists():
                print('loading...')
                model.load_parameters(SaveFile)
@@ -53,19 +43,17 @@ def main():
 
           try:
                print('learning...')
-               model.learn(total_timesteps=100000000, callback=callback, reset_num_timesteps=False)
-
-               print('evaluating...', end='')
-               totalRewards = evaluate(env, model)
-               print(f'mean reward: {np.mean(totalRewards)}')
+               model.learn(total_timesteps=100000000, callback=callback)
           finally:
                print('saving...')
                model.save(SaveFile)
                print('saved!')
 
+     except KeyboardInterrupt:
+          print('closing...')
      finally:
           env.close()
-
+     print('closed')
 
 if __name__ == "__main__":
      main()

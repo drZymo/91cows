@@ -5,12 +5,10 @@ from tensorflow.keras.utils import to_categorical
 from time import sleep
 import subprocess
 
-SamePlaceRadius = 0.01
-MaxNotMovedCount = 120 # 3 deg/step * 120 = 360 degrees
-NotMovedReward = -1
 EndOnNegativeReward = True
 DiscretePosition = 1/4
 DiscreteAngle = np.pi/2/4
+ClosestDistanceRewardEnabled = False
 
 ActionItemTypes = {
     'Coin': 0,
@@ -76,8 +74,8 @@ def getFieldObservation(gameState):
 
 def getAngleFromForward(forward):
     theta = np.arctan2(forward[1], forward[0])
-    while theta < -np.pi: theta += 2*np.pi
-    while theta > np.pi: theta -= 2*np.pi
+    while theta < 0: theta += 2*np.pi
+    while theta > 2*np.pi: theta -= 2*np.pi
     return theta / (2*np.pi)# 0...1
 
 
@@ -96,6 +94,49 @@ def getBotObservation(gameState):
         bots[botId] = bot
         scores[botId] = score
     return bots, scores
+
+
+def findFieldDistances(field, botPosition):
+    fieldHeight, fieldWidth, _ = field.shape
+    distances = np.full((fieldHeight, fieldWidth), np.inf)
+
+    x, y = np.floor(botPosition * [fieldWidth, fieldWidth]).astype(int)
+    if x < 0 or x > fieldWidth - 1 or y < 0 or y > fieldHeight - 1:
+        return distances
+
+    cellsToCheck = [(x,y)]
+    distances[y,x] = 0
+
+    def checkAndAdd(x, y, distance):
+        if distances[y, x] > distance + 1:
+            distances[y, x] = distance + 1
+            cellsToCheck.append((x, y))
+
+    while cellsToCheck:
+        cellX, cellY = cellsToCheck[0]
+        cellsToCheck = cellsToCheck[1:]
+        
+        walls = field[cellY,cellX,:4] > 0  #top, right, bottom, left
+        item = np.any(field[cellY,cellX,4:])
+        distance = distances[cellY, cellX]
+
+        if not walls[0]:
+            checkAndAdd(cellX, cellY+1, distance)
+        if not walls[1]:
+            checkAndAdd(cellX+1, cellY, distance)
+        if not walls[2]:
+            checkAndAdd(cellX, cellY-1, distance)
+        if not walls[3]:
+            checkAndAdd(cellX-1, cellY, distance)
+    return distances
+
+
+def findClosestItemLocation(field, botPosition):
+    distances = findFieldDistances(field, botPosition)
+    itemLocations = np.argwhere(np.any(field[:,:,4:], axis=-1))
+    itemDistances = distances[itemLocations[:,0], itemLocations[:,1]]
+    closestItemIndex = np.argmin(itemDistances)
+    return itemLocations[closestItemIndex], itemDistances[closestItemIndex]
 
 
 class Observer(object):
@@ -167,21 +208,22 @@ class GameController(object):
         self.process = subprocess.Popen([self.gameservicePath, f'-p {self.portOffset}'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         sleep(0.1) # give it some time to start
 
+        nrCells = fieldWidth * fieldHeight
         #print('Creating game')
         command = {
             'commandType': 'createGame',
             'gameOptions': {
                 'mazeSize': [fieldWidth, fieldHeight],
                 'numberOfActionItems': {
-                    'Bottle': 0, # was 4
-                    'Coin': 10,
-                    'EmptyChest': 0, # was 1
-                    'MimicChest': 0, # was 1
-                    'SpikeTrap': 0, # was 4
-                    'TestTube': 0, # was 4
-                    'TreasureChest': 2
+                    'Bottle': 0, # was: 4
+                    'Coin': 1, # was: (nrCells + 49) // 50,
+                    'EmptyChest': 0, # was: 1
+                    'MimicChest': 0, # was: 1
+                    'SpikeTrap': 0, # was: 4
+                    'TestTube': 0, # was: 4
+                    'TreasureChest': 0 #was: (nrCells + 99) // 100
                 },
-                'numberOfWallsToRemove': 20,
+                'numberOfWallsToRemove': nrCells // 5,
                 'removeDeadEnds': True
             }
         }
@@ -203,17 +245,22 @@ class GameController(object):
 
 
 class BotController(object):
-    def __init__(self, botId, hostname='localhost', portOffset=0):
+    def __init__(self, botId, hostname='localhost', portOffset=0, useDiscretePositions=False, useDiscreteAngles=True):
         self.botId = botId
         self.hostname = hostname
         self.portOffset = portOffset
+        self.useDiscretePositions = useDiscretePositions
+        self.useDiscreteAngles = useDiscreteAngles
 
     def reset(self, fieldWidth, fieldHeight):
         self.fieldWidth = fieldWidth
         self.fieldHeight = fieldHeight
+        self.botWidth = 0.25 / fieldWidth
+        self.botHeight = 0.25 / fieldHeight
+
         self.x = np.random.uniform(0, fieldWidth)
         self.y = np.random.uniform(0, fieldHeight)
-        self.o = np.random.uniform(-np.pi, np.pi)
+        self.o = np.random.uniform(0, 2*np.pi)
 
         # start in center of cell and at 90 degree angles
         self.x = np.floor(self.x) + 0.5
@@ -230,17 +277,19 @@ class BotController(object):
 
     def _sendUpdate(self):
         # Clip angle
-        if self.o < -np.pi: self.o += 2*np.pi
-        if self.o > np.pi: self.o -= 2*np.pi
+        if self.o < 0: self.o += 2*np.pi
+        if self.o > 2*np.pi: self.o -= 2*np.pi
         
         # Prevent leaving the arena
         self.x = np.clip(self.x, 0, self.fieldWidth)
         self.y = np.clip(self.y, 0, self.fieldHeight)
         
         # Discrete position and angle
-        self.x = np.round(self.x / DiscretePosition) * DiscretePosition
-        self.y = np.round(self.y / DiscretePosition) * DiscretePosition
-        self.o = np.round(self.o / DiscreteAngle) * DiscreteAngle
+        if self.useDiscretePositions:
+            self.x = np.round(self.x / DiscretePosition) * DiscretePosition
+            self.y = np.round(self.y / DiscretePosition) * DiscretePosition
+        if self.useDiscreteAngles:
+            self.o = np.round(self.o / DiscreteAngle) * DiscreteAngle
 
         # Convert to robot positions
         x = self.x / self.fieldWidth
@@ -253,8 +302,8 @@ class BotController(object):
         robot = {
             'arucoId': self.botId,
             'position': [x, y],
-            'xorient': np.matmul(R, [0.025, 0.0]).tolist(),
-            'yorient': np.matmul(R, [0.0, 0.025]).tolist()
+            'xorient': np.matmul(R, [self.botWidth, 0.0]).tolist(),
+            'yorient': np.matmul(R, [0.0, self.botHeight]).tolist()
         }
         self._sendRobotsState([{'robot': robot}])
 
@@ -276,39 +325,42 @@ class BotController(object):
 
 
 class SwocEnv(object):
-    def __init__(self, botId, gameservicePath, hostname='localhost', portOffset=0):
+    def __init__(self, botId, gameservicePath, hostname='localhost', portOffset=0, oneTarget=False):
         self.botId = botId
+        self.oneTarget = oneTarget
         self.game = GameController(gameservicePath, hostname, portOffset)
         self.bot = BotController(botId, hostname, portOffset)
         self.observer = Observer(hostname, portOffset)
 
-        self.previousScore = 0
-        self.done = False
-        self.lastBotPosition = np.zeros((2,))
-        self.lastBotPositionCount = 0
 
     def close(self):
-        #self.observer.close()
-        #self.bot.close()
         self.game.close()
 
+
     def reset(self, fieldWidth, fieldHeight):
+        # Create and start a new game
         self.game.createGame(fieldWidth, fieldHeight)
         self.bot.reset(fieldWidth, fieldHeight)
         self.game.startGame()
+        
+        # Get the first observation
         field, bots, scores, gameTick = self.observer.getObservation()
         bot = bots[self.botId]
         score = scores[self.botId]
-        obs = (field, bot)
-
         botPosition = bot[0:2]
 
         self.previousScore = score
         self.done = False
-        self.lastBotPosition = botPosition
-        self.lastBotPositionCount = 0
+
+        self.closestItemLocation, self.previousClosestItemDistance = findClosestItemLocation(field, botPosition)
+
+        if self.oneTarget:
+            field = field[:,:,:4]
+        target = [(self.closestItemLocation[1] + 0.5) / field.shape[0], (self.closestItemLocation[0] + 0.5) / field.shape[1]]
+        obs = (field, bot, target)
         return obs
-    
+
+
     def step(self, action):
         if self.done: raise "Game done; reset first"
         
@@ -324,33 +376,58 @@ class SwocEnv(object):
         field, bots, scores, gameTick = self.observer.getObservation()
         bot = bots[self.botId]
         score = scores[self.botId]
-        obs = (field, bot)
+        botPosition = bot[0:2]
 
-        # Compute reward
+        # Compute reward based on score
         reward = score - self.previousScore
         self.previousScore = score
 
-        # Check if bot hasn't moved for a while
-        botPosition = bot[0:2]
-        distance = np.linalg.norm(botPosition - self.lastBotPosition)
-        if (distance < SamePlaceRadius):
-            self.lastBotPositionCount += 1
-        else:
-            self.lastBotPosition = botPosition
-            self.lastBotPositionCount = 0
-        # Punish if bot didn't move for a while
-        notMoved = (self.lastBotPositionCount > MaxNotMovedCount)
-        reward += notMoved * NotMovedReward
+        # Reward shaping
+        if reward > 0:
+            # picked up coin
+            #reward = 1.0
+            self.done = True
+        elif reward < 0:
+            # hit a wall
+            #reward = -0.5
+            self.done = True
+        #else:
+        #    # moved
+        #    reward = -0.04
+
+        # End game if negative reward (e.g. hit wall)
+        #if EndOnNegativeReward and reward < 0:
+        #    self.done = True
 
         # Stop if episode takes too long (1 tick every 50 ms) => 20 ticks/second => 6000 ticks = 300 seconds = 5 minutes
         if gameTick > 6000:
             self.done = True
 
-        # End game if negative reward (e.g. hit wall)
-        if EndOnNegativeReward and reward < 0:
-            self.done = True
+        if not self.done:
+            if reward > 0:
+                # Find new closest item on positive reward
+                self.closestItemLocation, self.previousClosestItemDistance = findClosestItemLocation(field, botPosition)
+            else:
+                # Find distance to closest item
+                distances = findFieldDistances(field, botPosition)
+                closestItemDistance = distances[self.closestItemLocation[0], self.closestItemLocation[1]]
+        
+                if closestItemDistance < self.previousClosestItemDistance:
+                    # Reward if bot gets closer to the target
+                    reward += 0.1
+                #elif closestItemDistance > self.previousClosestItemDistance:
+                #    # Punish (a little) if bot gets further from the target
+                #    reward -= 0.01
+                elif closestItemDistance == self.previousClosestItemDistance:
+                    # Punish if bot stays on the same place
+                    reward -= 0.1
+                self.previousClosestItemDistance = closestItemDistance
 
         if self.done:
             self.game.stopGame()
 
+        if self.oneTarget:
+            field = field[:,:,:4]
+        target = [(self.closestItemLocation[1] + 0.5) / field.shape[0], (self.closestItemLocation[0] + 0.5) / field.shape[1]]
+        obs = (field, bot, target)
         return obs, reward, self.done

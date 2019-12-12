@@ -7,6 +7,8 @@ def DrawObservation(obs, width, height):
     nrRows, nrColumns = field.shape[0], field.shape[1]
     cellWidth = width / nrColumns
     cellHeight = height / nrRows
+    botWidth = 0.25 / nrColumns
+    botHeight = 0.25 / nrRows
 
     im = Image.new('L', (width, height), color=0)
     draw = ImageDraw.Draw(im)
@@ -16,7 +18,7 @@ def DrawObservation(obs, width, height):
         r, b = l + cellWidth - 1, t + cellHeight - 1
         cx, cy = (l + r) // 2, (t + b) // 2
 
-        qw, qh = cellWidth // 8, cellHeight // 8
+        qw, qh = cellWidth // 6, cellHeight // 6
 
         draw.rectangle((l, t, r, b), fill=0)
         draw.rectangle((l+1, t+1, r-1, b-1), fill=None, outline=64)
@@ -30,20 +32,22 @@ def DrawObservation(obs, width, height):
         if cell[3]: # left wall
             draw.line((l, b, l, t), fill=192)
 
-        if cell[4]: # coin
-            draw.ellipse((cx-qw,cy-qh,cx+qw,cy+qh), fill=128, outline=192)
-        if cell[5]: # treasure chest
-            draw.rectangle((cx-qw,cy-qh,cx+qw,cy+qh), fill=128, outline=192)
-        if cell[6]: # empty chest
-            draw.rectangle((cx-qw,cy-qh,cx+qw,cy+qh), fill=None, outline=192)
-        if cell[7]: # mimic chest
-            draw.rectangle((cx-qw,cy-qh,cx+qw,cy+qh), fill=64, outline=192)
-        if cell[8]: # spike trap
-            draw.polygon((cx-qw,cy+qh, cx-(qw//2),cy-qh, cx,cy+qh, cx+(qw//2),cy-qh, cx+qw,cy+qh), fill=128, outline=192)
-        if cell[9]: # bottle
-            draw.ellipse((cx-(qw//2),cy-qh,cx+(qw//2),cy+qh), fill=128, outline=192)
-        if cell[10]: # test tube
-            draw.ellipse((cx-(qw//2),cy-qh,cx+(qw//2),cy+qh), fill=None, outline=192)
+        if len(cell) >= 11:
+            if cell[4]: # coin
+                draw.ellipse((cx-qw,cy-qh,cx+qw,cy+qh), fill=128, outline=192)
+            if cell[5]: # treasure chest
+                draw.rectangle((cx-qw,cy-qh,cx+qw,cy+qh), fill=128, outline=192)
+            if cell[6]: # empty chest
+                draw.rectangle((cx-qw,cy-qh,cx+qw,cy+qh), fill=None, outline=192)
+            if cell[7]: # mimic chest
+                draw.rectangle((cx-qw,cy-qh,cx+qw,cy+qh), fill=64, outline=192)
+            if cell[8]: # spike trap
+                draw.polygon((cx-qw,cy+qh, cx-(qw//2),cy-qh, cx,cy+qh, cx+(qw//2),cy-qh, cx+qw,cy+qh), fill=128, outline=192)
+            if cell[9]: # bottle
+                draw.ellipse((cx-(qw//2),cy-qh,cx+(qw//2),cy+qh), fill=128, outline=192)
+            if cell[10]: # test tube
+                draw.ellipse((cx-(qw//2),cy-qh,cx+(qw//2),cy+qh), fill=None, outline=192)
+
 
     def DrawField(field):
         for y,row in enumerate(field):
@@ -56,8 +60,8 @@ def DrawObservation(obs, width, height):
         
         c, s = np.cos(orientation), np.sin(orientation)
         R = np.array(((c, -s), (s, c)))
-        forward = np.matmul(R, [0.025, 0.0])
-        right = np.matmul(R, [0.0, 0.025])
+        forward = np.matmul(R, [botHeight, 0.0])
+        right = np.matmul(R, [0.0, botWidth])
 
         rightForward = position + forward + right
         leftForward = position + forward - right

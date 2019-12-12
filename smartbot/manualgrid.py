@@ -1,19 +1,20 @@
-from swocgym import SwocGym
+from swocgymgrid import SwocGym
 from draw import DrawObservation
 import pyglet
 from pyglet.window import key
+from PIL import Image
 
 GameServicePath = '../../build/GameService/GameService'
 
-env = SwocGym(1, GameServicePath, 0, actionRepeat=4, fieldWidth=5, fieldHeight=5, oneTarget=True)
+env = SwocGym(1, GameServicePath, 0, fieldWidth=5, fieldHeight=5)
 
 obs, reward, done  = env.reset(), 0, False
-rawImage = env.render('rgb_array', 800, 800)
-width, height, _ = rawImage.shape
-
+rawImage = env.render('rgb_array')
+rawImage = Image.fromarray(rawImage, mode='RGBA').resize((800, 800))
+width, height = rawImage.size
 
 window = pyglet.window.Window(width=width, height=height)
-image = pyglet.image.ImageData(width, height, 'RGB', rawImage.tobytes(), pitch=-width*3)
+image = pyglet.image.ImageData(width, height, 'RGBA', rawImage.tobytes(), pitch=-width*4)
 
 @window.event
 def on_draw():
@@ -21,7 +22,7 @@ def on_draw():
 
 def update(dt):
     global rawImage
-    image.set_data(format='RGB', data=rawImage.tobytes(), pitch=-width*3)
+    image.set_data(format='RGBA', data=rawImage.tobytes(), pitch=-width*4)
 
 @window.event
 def on_key_press(symbol, modifiers):
@@ -30,13 +31,10 @@ def on_key_press(symbol, modifiers):
     reward, done = 0, False
     if symbol == key.UP:
         obs, reward, done, info = env.step(0)
-        print(obs[-5:])
     elif symbol == key.RIGHT:
         obs, reward, done, info = env.step(1)
-        print(obs[-5:])
     elif symbol == key.LEFT:
         obs, reward, done, info = env.step(2)
-        print(obs[-5:])
 
     if reward != 0:
         print(f'reward: {reward}')
@@ -45,7 +43,8 @@ def on_key_press(symbol, modifiers):
         print('done')
         obs, reward, done  = env.reset(), 0, False
 
-    rawImage = env.render('rgb_array', width, height)
+    rawImage = env.render('rgb_array')
+    rawImage = Image.fromarray(rawImage, mode='RGBA').resize((800, 800))
 
 pyglet.clock.schedule_interval(update, 0.05)
 pyglet.app.run()
