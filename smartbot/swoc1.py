@@ -7,7 +7,7 @@ import subprocess
 
 EndOnNegativeReward = True
 DiscretePosition = 1/4
-DiscreteAngle = np.pi/2/4
+DiscreteAngle = (np.pi/2)/4
 ClosestDistanceRewardEnabled = False
 
 ActionItemTypes = {
@@ -385,43 +385,36 @@ class SwocEnv(object):
         # Reward shaping
         if reward > 0:
             # picked up coin
-            #reward = 1.0
+            reward = 1.0
             self.done = True
         elif reward < 0:
             # hit a wall
-            #reward = -0.5
+            reward = -0.75
             self.done = True
-        #else:
-        #    # moved
-        #    reward = -0.04
-
-        # End game if negative reward (e.g. hit wall)
-        #if EndOnNegativeReward and reward < 0:
-        #    self.done = True
 
         # Stop if episode takes too long (1 tick every 50 ms) => 20 ticks/second => 6000 ticks = 300 seconds = 5 minutes
         if gameTick > 6000:
             self.done = True
 
-        if not self.done:
-            if reward > 0:
-                # Find new closest item on positive reward
-                self.closestItemLocation, self.previousClosestItemDistance = findClosestItemLocation(field, botPosition)
-            else:
-                # Find distance to closest item
-                distances = findFieldDistances(field, botPosition)
-                closestItemDistance = distances[self.closestItemLocation[0], self.closestItemLocation[1]]
-        
-                if closestItemDistance < self.previousClosestItemDistance:
-                    # Reward if bot gets closer to the target
-                    reward += 0.1
-                #elif closestItemDistance > self.previousClosestItemDistance:
-                #    # Punish (a little) if bot gets further from the target
-                #    reward -= 0.01
-                elif closestItemDistance == self.previousClosestItemDistance:
-                    # Punish if bot stays on the same place
-                    reward -= 0.1
-                self.previousClosestItemDistance = closestItemDistance
+        #if not self.done:
+        #    if reward > 0:
+        #        # Find new closest item on positive reward
+        #        self.closestItemLocation, self.previousClosestItemDistance = findClosestItemLocation(field, botPosition)
+        #    else:
+        #        # Find distance to closest item
+        #        distances = findFieldDistances(field, botPosition)
+        #        closestItemDistance = distances[self.closestItemLocation[0], self.closestItemLocation[1]]
+        #
+        #        if closestItemDistance < self.previousClosestItemDistance:
+        #            # Reward if bot gets closer to the target
+        #            reward += 0.1
+        #        #elif closestItemDistance > self.previousClosestItemDistance:
+        #        #    # Punish (a little) if bot gets further from the target
+        #        #    reward -= 0.01
+        #        elif closestItemDistance == self.previousClosestItemDistance:
+        #            # Punish if bot stays on the same place
+        #            reward -= 0.1
+        #        self.previousClosestItemDistance = closestItemDistance
 
         if self.done:
             self.game.stopGame()

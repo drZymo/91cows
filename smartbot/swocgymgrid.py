@@ -5,6 +5,7 @@ import numpy as np
 from draw import DrawObservation
 from tensorflow.keras.utils import to_categorical
 import matplotlib.pyplot as plt
+from PIL import Image
 
 def convertToGrid(obs, fieldWidth, fieldHeight):
     fieldObs, botObs, targetObs = obs
@@ -25,15 +26,15 @@ def convertToGrid(obs, fieldWidth, fieldHeight):
             field[cy, cx-1] = 1 if l else 0
 
     # bot
-    bx = int(botObs[0]*fieldWidth)*2 + 1
-    by = int(botObs[1]*fieldHeight)*2 + 1
+    bx = int(botObs[0]*fieldWidth*2 + 0.5)  # round to nearest int
+    by = int(botObs[1]*fieldHeight*2 + 0.5)
     bx = np.clip(bx, 0, field.shape[1]-1)
     by = np.clip(by, 0, field.shape[0]-1)
     field[by, bx] = 2
 
     # target
-    tx = int(targetObs[0]*fieldWidth)*2 + 1
-    ty = int(targetObs[1]*fieldHeight)*2 + 1
+    tx = int(targetObs[0]*fieldWidth*2 + 0.5)  # round to nearest int
+    ty = int(targetObs[1]*fieldHeight*2 + 0.5)
     field[ty, tx] = 3
 
     field = to_categorical(field, num_classes=4)
@@ -51,7 +52,7 @@ class SwocGym(gym.Env):
         self.fieldHeight = fieldHeight
 
         self.action_space = spaces.Discrete(3)
-        observationShape = ((self.fieldWidth*2 + 1)*(self.fieldHeight*2 + 1),)
+        observationShape = ((self.fieldWidth*2 + 1)*(self.fieldHeight*2 + 1)*4,)
         self.observation_space = spaces.Box(0, 1, shape=observationShape)
         self.env = SwocEnv(botId, gameservicePath, hostname='localhost', portOffset=portOffset, oneTarget=True)
         self.viewer = None
@@ -72,35 +73,61 @@ class SwocGym(gym.Env):
 
 
     def reset(self):
-        obs = self.env.reset(self.fieldWidth, self.fieldHeight)
-        obs = convertToGrid(obs, self.fieldWidth, self.fieldHeight)
+        self.lastRawObs = self.env.reset(self.fieldWidth, self.fieldHeight)
+        self.lastObs = convertToGrid(self.lastRawObs, self.fieldWidth, self.fieldHeight)
 
-        self.lastObs = obs
         if self.saveEpisode: 
             self._saveObs(obs)
-        return obs
+        return self.lastObs.flatten()
 
 
     def step(self, action):
-        totalReward = 0
-        for _ in range(4):
-            obs, reward, done = self.env.step(action)
-            obs = convertToGrid(obs, self.fieldWidth, self.fieldHeight)
-            self.lastObs = obs
+        totalReward, done = 0, False
+        
+        # Determine target orientation
+        if action == 0: # north
+            targetOrientation = 0.75
+        elif action == 1: # east
+            targetOrientation = 0
+        elif action == 2: # south
+            targetOrientation = 0.25
+        elif action == 3: # west
+            targetOrientation = 0.5
+
+        # Rotate to target orientation
+        while not done:
+            _,_,orientation = self.lastRawObs[1]
+            deltaOrientation = targetOrientation - orientation
+            if deltaOrientation < 0.5: deltaOrientation += 1.0
+            if deltaOrientation > 0.5: deltaOrientation -= 1.0
+            if abs(deltaOrientation) < 0.01:
+                break
+
+            self.lastRawObs, reward, done = self.env.step(2 if deltaOrientation > 0 else 1)
             totalReward += reward
-            if done: break
-        obs = self.lastObs
+
+        # Move two steps forward
+        if not done:            
+            self.lastRawObs, reward, done = self.env.step(0)
+            totalReward += reward
+        if not done:            
+            self.lastRawObs, reward, done = self.env.step(0)
+            totalReward += reward
+
+        # Convert to right observation
+        self.lastObs = convertToGrid(self.lastRawObs, self.fieldWidth, self.fieldHeight)
         
         if self.saveEpisode:
             self._saveAct(action, totalReward, done)
             self._saveObs(obs)
         
-        return obs, totalReward, done, dict()
+        return self.lastObs.flatten(), totalReward, done, dict()
 
 
-    def render(self, mode='human'):
+    def render(self, mode='human', width=240, height=240):
         img = np.argmax(self.lastObs, axis=-1) / 3
         img = np.uint8(plt.get_cmap('viridis')(img)*255)
+        img = np.array(Image.fromarray(img, mode='RGBA').resize((width, height)))
 
         if mode == 'rgb_array':
             return img
