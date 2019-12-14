@@ -73,8 +73,19 @@ class SwocGym(gym.Env):
 
 
     def reset(self):
-        self.lastRawObs = self.env.reset(self.fieldWidth, self.fieldHeight)
+
+        while True:
+            self.lastRawObs = self.env.reset(self.fieldWidth, self.fieldHeight)
+            _, botObs, targetObs = self.lastRawObs
+            dist = np.linalg.norm(targetObs - botObs[:2])
+            if dist > 0.01:
+                break
+        
         self.lastObs = convertToGrid(self.lastRawObs, self.fieldWidth, self.fieldHeight)
+
+        pos = np.argwhere(self.lastObs[:,:,2] == 1)[0]
+        pos = pos[0] * self.lastObs.shape[1] + pos[1]
+        self.visited = [pos]
 
         if self.saveEpisode: 
             self._saveObs(obs)
@@ -116,7 +127,14 @@ class SwocGym(gym.Env):
 
         # Convert to right observation
         self.lastObs = convertToGrid(self.lastRawObs, self.fieldWidth, self.fieldHeight)
-        
+
+        # Punish if visited before
+        pos = np.argwhere(self.lastObs[:,:,2] == 1)[0]
+        pos = pos[0] * self.lastObs.shape[1] + pos[1]
+        if pos in self.visited:
+            totalReward = -0.1
+        self.visited.append(pos)
+
         if self.saveEpisode:
             self._saveAct(action, totalReward, done)
             self._saveObs(obs)

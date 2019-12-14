@@ -255,8 +255,8 @@ class BotController(object):
     def reset(self, fieldWidth, fieldHeight):
         self.fieldWidth = fieldWidth
         self.fieldHeight = fieldHeight
-        self.botWidth = 0.25 / fieldWidth
-        self.botHeight = 0.25 / fieldHeight
+        self.botWidth = 0.26 / fieldWidth
+        self.botHeight = 0.26 / fieldHeight
 
         self.x = np.random.uniform(0, fieldWidth)
         self.y = np.random.uniform(0, fieldHeight)
@@ -356,7 +356,7 @@ class SwocEnv(object):
 
         if self.oneTarget:
             field = field[:,:,:4]
-        target = [(self.closestItemLocation[1] + 0.5) / field.shape[0], (self.closestItemLocation[0] + 0.5) / field.shape[1]]
+        target = np.array([(self.closestItemLocation[1] + 0.5) / field.shape[0], (self.closestItemLocation[0] + 0.5) / field.shape[1]])
         obs = (field, bot, target)
         return obs
 
