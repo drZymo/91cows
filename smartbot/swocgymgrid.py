@@ -11,7 +11,7 @@ def convertToGrid(obs, fieldWidth, fieldHeight):
     fieldObs, botObs, targetObs = obs
 
     # 0 = empty, 1 = wall, 2 = bot, 3 = target
-    field = np.ones((fieldHeight*2+1, fieldWidth*2+1))
+    field = np.zeros((fieldHeight*2+1, fieldWidth*2+1))
 
     # empty cells
     for y in range(fieldObs.shape[0]):
@@ -20,10 +20,28 @@ def convertToGrid(obs, fieldWidth, fieldHeight):
             cx = x*2+1
             t,r,b,l = fieldObs[y, x]
             field[cy, cx] = 0
-            field[cy+1, cx] = 1 if t else 0
-            field[cy, cx+1] = 1 if r else 0
-            field[cy-1, cx] = 1 if b else 0
-            field[cy, cx-1] = 1 if l else 0
+            
+            if t:
+                field[cy+1, cx-1] = 1
+                field[cy+1, cx] = 1
+                field[cy+1, cx+1] = 1
+            if b:
+                field[cy-1, cx-1] = 1
+                field[cy-1, cx] = 1
+                field[cy-1, cx+1] = 1
+            if l:
+                field[cy-1, cx-1] = 1
+                field[cy, cx-1] = 1
+                field[cy+1, cx-1] = 1
+            if r:
+                field[cy-1, cx+1] = 1
+                field[cy, cx+1] = 1
+                field[cy+1, cx+1] = 1
+
+    # target
+    tx = int(targetObs[0]*fieldWidth*2 + 0.5)  # round to nearest int
+    ty = int(targetObs[1]*fieldHeight*2 + 0.5)
+    field[ty, tx] = 3
 
     # bot
     bx = int(botObs[0]*fieldWidth*2 + 0.5)  # round to nearest int
@@ -31,11 +49,6 @@ def convertToGrid(obs, fieldWidth, fieldHeight):
     bx = np.clip(bx, 0, field.shape[1]-1)
     by = np.clip(by, 0, field.shape[0]-1)
     field[by, bx] = 2
-
-    # target
-    tx = int(targetObs[0]*fieldWidth*2 + 0.5)  # round to nearest int
-    ty = int(targetObs[1]*fieldHeight*2 + 0.5)
-    field[ty, tx] = 3
 
     field = to_categorical(field, num_classes=4)
     return field
@@ -130,7 +143,9 @@ class SwocGym(gym.Env):
 
         # Punish if visited before
         pos = np.argwhere(self.lastObs[:,:,2] == 1)[0]
+        print(pos)
         pos = pos[0] * self.lastObs.shape[1] + pos[1]
+        print(pos)
         if pos in self.visited:
             totalReward = -0.1
         self.visited.append(pos)

@@ -23,19 +23,21 @@ def callback(locals, globals):
      # save the model every N updates
      update = locals['update']
      if update > 0 and update % SaveEvery == 0:
-          print('saving...')
+          print('saving...', end='')
           locals['self'].save(SaveFile)
+          print('saved!')
 
      return True
 
 def main():
      env = SubprocVecEnv([(lambda i=i: SwocGym(i+1, GameServicePath, i, fieldWidth=5, fieldHeight=5)) for i in range(16)])
      try:
-          model = PPO2("MlpPolicy", env, verbose=1, policy_kwargs={'net_arch': [256,256,128,128,64,64], 'act_fun': tf.nn.relu},
-                         n_steps=32, ent_coef=0.0, learning_rate=1e-4, tensorboard_log='/home/ralph/swoc2019/log')
+          model = PPO2("MlpPolicy", env, verbose=1, policy_kwargs={'net_arch': [512,512,256,256,128,128], 'act_fun': tf.nn.relu},
+                         n_steps=32, ent_coef=0.01, learning_rate=1e-5, tensorboard_log='/home/ralph/swoc2019/log')
           if SaveFile.exists():
-               print('loading...')
+               print('loading...', end='')
                model.load_parameters(SaveFile)
+               print('loaded!')
           else:
                # No weights loaded, so remove history
                with open(RewardsLog, 'w+') as file:
@@ -45,15 +47,15 @@ def main():
                print('learning...')
                model.learn(total_timesteps=100000000, callback=callback)
           finally:
-               print('saving...')
+               print('saving...', end='')
                model.save(SaveFile)
                print('saved!')
 
      except KeyboardInterrupt:
-          print('closing...')
+          print('closing...', end='')
      finally:
           env.close()
-     print('closed')
+     print('closed!')
 
 if __name__ == "__main__":
      main()
