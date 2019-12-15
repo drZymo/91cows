@@ -33,7 +33,7 @@ def main():
      env = SubprocVecEnv([(lambda i=i: SwocGym(i+1, GameServicePath, i, fieldWidth=5, fieldHeight=5)) for i in range(16)])
      try:
           model = PPO2("MlpPolicy", env, verbose=1, policy_kwargs={'net_arch': [512,512,256,256,128,128], 'act_fun': tf.nn.relu},
-                         n_steps=32, ent_coef=0.01, learning_rate=1e-5, tensorboard_log='/home/ralph/swoc2019/log')
+                         n_steps=64, ent_coef=0.01, learning_rate=1e-5, tensorboard_log='/home/ralph/swoc2019/log')
           if SaveFile.exists():
                print('loading...', end='')
                model.load_parameters(SaveFile)

@@ -11,7 +11,7 @@ def convertToGrid(obs, fieldWidth, fieldHeight):
     fieldObs, botObs, targetObs = obs
 
     # 0 = empty, 1 = wall, 2 = bot, 3 = target
-    field = np.zeros((fieldHeight*2+1, fieldWidth*2+1))
+    field = np.ones((fieldHeight*2+1, fieldWidth*2+1))
 
     # empty cells
     for y in range(fieldObs.shape[0]):
@@ -21,22 +21,14 @@ def convertToGrid(obs, fieldWidth, fieldHeight):
             t,r,b,l = fieldObs[y, x]
             field[cy, cx] = 0
             
-            if t:
-                field[cy+1, cx-1] = 1
-                field[cy+1, cx] = 1
-                field[cy+1, cx+1] = 1
-            if b:
-                field[cy-1, cx-1] = 1
-                field[cy-1, cx] = 1
-                field[cy-1, cx+1] = 1
-            if l:
-                field[cy-1, cx-1] = 1
-                field[cy, cx-1] = 1
-                field[cy+1, cx-1] = 1
-            if r:
-                field[cy-1, cx+1] = 1
-                field[cy, cx+1] = 1
-                field[cy+1, cx+1] = 1
+            if not t:
+                field[cy+1, cx] = 0
+            if not b:
+                field[cy-1, cx] = 0
+            if not l:
+                field[cy, cx-1] = 0
+            if not r:
+                field[cy, cx+1] = 0
 
     # target
     tx = int(targetObs[0]*fieldWidth*2 + 0.5)  # round to nearest int
@@ -142,13 +134,12 @@ class SwocGym(gym.Env):
         self.lastObs = convertToGrid(self.lastRawObs, self.fieldWidth, self.fieldHeight)
 
         # Punish if visited before
-        pos = np.argwhere(self.lastObs[:,:,2] == 1)[0]
-        print(pos)
-        pos = pos[0] * self.lastObs.shape[1] + pos[1]
-        print(pos)
-        if pos in self.visited:
-            totalReward = -0.1
-        self.visited.append(pos)
+        if not done:
+            pos = np.argwhere(self.lastObs[:,:,2] == 1)[0]
+            pos = pos[0] * self.lastObs.shape[1] + pos[1]
+            if pos in self.visited:
+                totalReward = -0.1
+            self.visited.append(pos)
 
         if self.saveEpisode:
             self._saveAct(action, totalReward, done)
