@@ -34,7 +34,7 @@ def animate(i):
     halfdiff = int((len(rew)-len(m))/2)
     ax1.plot(range(halfdiff,halfdiff+len(m)),m,'-', alpha=1, linewidth=3, color='black')
 
-ani = animation.FuncAnimation(fig, animate, interval=10000)
+ani = animation.FuncAnimation(fig, animate, interval=3000)
 
 plt.show()
 

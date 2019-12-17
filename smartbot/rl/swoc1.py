@@ -5,10 +5,8 @@ from tensorflow.keras.utils import to_categorical
 from time import sleep
 import subprocess
 
-EndOnNegativeReward = True
-DiscretePosition = 1/4
+DiscretePosition = 1/10
 DiscreteAngle = (np.pi/2)/4
-ClosestDistanceRewardEnabled = False
 
 ActionItemTypes = {
     'Coin': 0,
@@ -215,13 +213,13 @@ class GameController(object):
             'gameOptions': {
                 'mazeSize': [fieldWidth, fieldHeight],
                 'numberOfActionItems': {
-                    'Bottle': 0, # was: 4
-                    'Coin': 1, # was: (nrCells + 49) // 50,
-                    'EmptyChest': 0, # was: 1
-                    'MimicChest': 0, # was: 1
-                    'SpikeTrap': 0, # was: 4
-                    'TestTube': 0, # was: 4
-                    'TreasureChest': 0 #was: (nrCells + 99) // 100
+                    'Bottle': 4,
+                    'Coin': (nrCells + 49) // 50,
+                    'EmptyChest': 1,
+                    'MimicChest': 1,
+                    'SpikeTrap': 4,
+                    'TestTube': 4,
+                    'TreasureChest': (nrCells + 99) // 100
                 },
                 'numberOfWallsToRemove': nrCells // 5,
                 'removeDeadEnds': True
@@ -356,8 +354,11 @@ class SwocEnv(object):
 
         if self.oneTarget:
             field = field[:,:,:4]
-        target = np.array([(self.closestItemLocation[1] + 0.5) / field.shape[0], (self.closestItemLocation[0] + 0.5) / field.shape[1]])
-        obs = (field, bot, target)
+            target = np.array([(self.closestItemLocation[1] + 0.5) / field.shape[0], (self.closestItemLocation[0] + 0.5) / field.shape[1]])
+            obs = (field, bot, target)
+        else:
+            obs = (field, bot)
+
         return obs
 
 
@@ -421,6 +422,9 @@ class SwocEnv(object):
 
         if self.oneTarget:
             field = field[:,:,:4]
-        target = [(self.closestItemLocation[1] + 0.5) / field.shape[0], (self.closestItemLocation[0] + 0.5) / field.shape[1]]
-        obs = (field, bot, target)
+            target = np.array([(self.closestItemLocation[1] + 0.5) / field.shape[0], (self.closestItemLocation[0] + 0.5) / field.shape[1]])
+            obs = (field, bot, target)
+        else:
+            obs = (field, bot)
+
         return obs, reward, self.done

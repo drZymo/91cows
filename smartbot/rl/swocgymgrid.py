@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 def convertToGrid(obs, fieldWidth, fieldHeight):
-    fieldObs, botObs, targetObs = obs
+    fieldObs, botObs = obs
 
     # 0 = empty, 1 = wall, 2 = bot, 3 = target
     field = np.ones((fieldHeight*2+1, fieldWidth*2+1))
@@ -18,9 +18,9 @@ def convertToGrid(obs, fieldWidth, fieldHeight):
         cy = y*2+1
         for x in range(fieldObs.shape[1]):
             cx = x*2+1
-            t,r,b,l = fieldObs[y, x]
+            t,r,b,l = fieldObs[y, x, :4]
             field[cy, cx] = 0
-            
+
             if not t:
                 field[cy+1, cx] = 0
             if not b:
@@ -29,11 +29,16 @@ def convertToGrid(obs, fieldWidth, fieldHeight):
                 field[cy, cx-1] = 0
             if not r:
                 field[cy, cx+1] = 0
-
-    # target
-    tx = int(targetObs[0]*fieldWidth*2 + 0.5)  # round to nearest int
-    ty = int(targetObs[1]*fieldHeight*2 + 0.5)
-    field[ty, tx] = 3
+                
+            if fieldObs[y,x,4]: # coin
+                field[cy, cx] = 3
+            elif fieldObs[y,x,5]: # treasure chest
+                field[cy, cx] = 3
+            elif fieldObs[y,x,8]: # spike trap
+                field[cy, cx] = 1 # pretend its a wall
+            else:
+                # ignore: empty chest, mimic chest, bottle, test tube
+                pass
 
     # bot
     bx = int(botObs[0]*fieldWidth*2 + 0.5)  # round to nearest int
@@ -56,10 +61,10 @@ class SwocGym(gym.Env):
         self.fieldWidth = fieldWidth
         self.fieldHeight = fieldHeight
 
-        self.action_space = spaces.Discrete(3)
+        self.action_space = spaces.Discrete(4)
         observationShape = ((self.fieldWidth*2 + 1)*(self.fieldHeight*2 + 1)*4,)
         self.observation_space = spaces.Box(0, 1, shape=observationShape)
-        self.env = SwocEnv(botId, gameservicePath, hostname='localhost', portOffset=portOffset, oneTarget=True)
+        self.env = SwocEnv(botId, gameservicePath, hostname='localhost', portOffset=portOffset)
         self.viewer = None
         self.index = 0
 
@@ -69,22 +74,22 @@ class SwocGym(gym.Env):
 
 
     def _saveObs(self, obs):
-        np.save(f'/home/ralph/swoc2019/episode/{self.botId}-{self.index}-obs.npy', obs)
+        np.save(f'/home/ralph/swoc2019/episode/{self.botId}-{self.index}-obs.npy', obs, allow_pickle=True)
         self.index += 1
 
 
     def _saveAct(self, action, reward, done):
-        np.save(f'/home/ralph/swoc2019/episode/{self.botId}-{self.index}-act.npy', [action, reward, done])
+        np.save(f'/home/ralph/swoc2019/episode/{self.botId}-{self.index}-act.npy', [action, reward, done], allow_pickle=True)
 
 
     def reset(self):
 
-        while True:
-            self.lastRawObs = self.env.reset(self.fieldWidth, self.fieldHeight)
-            _, botObs, targetObs = self.lastRawObs
-            dist = np.linalg.norm(targetObs - botObs[:2])
-            if dist > 0.01:
-                break
+        self.lastRawObs = self.env.reset(self.fieldWidth, self.fieldHeight)
+        # TODO: if on target, skip this env
+            #_, botObs, targetObs = self.lastRawObs
+            #dist = np.linalg.norm(targetObs - botObs[:2])
+            #if dist > 0.01:
+            #    break
         
         self.lastObs = convertToGrid(self.lastRawObs, self.fieldWidth, self.fieldHeight)
 
@@ -93,7 +98,7 @@ class SwocGym(gym.Env):
         self.visited = [pos]
 
         if self.saveEpisode: 
-            self._saveObs(obs)
+            self._saveObs(self.lastRawObs)
         return self.lastObs.flatten()
 
 
@@ -122,13 +127,11 @@ class SwocGym(gym.Env):
             self.lastRawObs, reward, done = self.env.step(2 if deltaOrientation > 0 else 1)
             totalReward += reward
 
-        # Move two steps forward
-        if not done:            
-            self.lastRawObs, reward, done = self.env.step(0)
-            totalReward += reward
-        if not done:            
-            self.lastRawObs, reward, done = self.env.step(0)
-            totalReward += reward
+        # Move half a block forward
+        for _ in range(5):
+            if not done:            
+                self.lastRawObs, reward, done = self.env.step(0)
+                totalReward += reward
 
         # Convert to right observation
         self.lastObs = convertToGrid(self.lastRawObs, self.fieldWidth, self.fieldHeight)
@@ -143,7 +146,7 @@ class SwocGym(gym.Env):
 
         if self.saveEpisode:
             self._saveAct(action, totalReward, done)
-            self._saveObs(obs)
+            self._saveObs(self.lastRawObs)
         
         return self.lastObs.flatten(), totalReward, done, dict()
 

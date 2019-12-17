@@ -8,20 +8,18 @@ width, height = 800, 800
 botId = 1
 index = 0
 
-ActionNames = {None: '?', 0: 'forward', 1: 'right', 2: 'left'}
+ActionNames = {None: '?', 0: 'down', 1: 'right', 2: 'up', 3: 'left'}
 def readObs():
     global prevObs
     try:
-        obs = np.load(f'/home/ralph/swoc2019/episode/{botId}-{index}-obs.npy')
-        fieldObs, botObs = obs[:1100], obs[1100:]
-        prevObs = fieldObs.reshape(10,10,11), botObs
+        prevObs = np.load(f'/home/ralph/swoc2019/episode/{botId}-{index}-obs.npy', allow_pickle=True)
     except:
         pass
     return prevObs
 
 def readAct():
     try:
-        return np.load(f'/home/ralph/swoc2019/episode/{botId}-{index}-act.npy')
+        return np.load(f'/home/ralph/swoc2019/episode/{botId}-{index}-act.npy', allow_pickle=True)
     except:
         return None, None, None
 

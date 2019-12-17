@@ -1,6 +1,7 @@
 from stable_baselines.common.vec_env import SubprocVecEnv
 from stable_baselines import PPO2
-from swocgymgrid import SwocGym
+#from swocgymgrid import SwocGym
+from mazegym import MazeGym
 from pathlib import Path
 import numpy as np
 
@@ -21,19 +22,22 @@ def callback(locals, globals):
           file.write(f'{int(batchReward)}\n')
 
      # save the model every N updates
-     update = locals['update']
-     if update > 0 and update % SaveEvery == 0:
-          print('saving...', end='')
-          locals['self'].save(SaveFile)
-          print('saved!')
+     #update = locals['update']
+     #if update > 0 and update % SaveEvery == 0:
+     #     print('saving...', end='')
+     #     locals['self'].save(SaveFile)
+     #     print('saved!')
 
      return True
 
 def main():
-     env = SubprocVecEnv([(lambda i=i: SwocGym(i+1, GameServicePath, i, fieldWidth=5, fieldHeight=5)) for i in range(16)])
+#     env = SubprocVecEnv([(lambda i=i: SwocGym(i+1, GameServicePath, i, fieldWidth=10, fieldHeight=10)) for i in range(16)])
+     env = SubprocVecEnv([(lambda i=i: MazeGym(mazeWidth=10, mazeHeight=10, nrWallsToRemove=60)) for i in range(12)])
      try:
-          model = PPO2("MlpPolicy", env, verbose=1, policy_kwargs={'net_arch': [512,512,256,256,128,128], 'act_fun': tf.nn.relu},
-                         n_steps=64, ent_coef=0.01, learning_rate=1e-5, tensorboard_log='/home/ralph/swoc2019/log')
+          #model = PPO2("MlpPolicy", env, verbose=1, ent_coef=0.01, tensorboard_log='/home/ralph/swoc2019/log')
+          #model = PPO2("MlpPolicy", env, verbose=1, policy_kwargs={'net_arch': [1024,1024,512,512,256,256,128,128,64,64], 'act_fun': tf.nn.relu},
+          #               n_steps=64, ent_coef=0.01, learning_rate=1e-5, tensorboard_log='/home/ralph/swoc2019/log')
+          model = PPO2("MlpPolicy", env, verbose=1, policy_kwargs={'net_arch': [1024,1024,512,512,256,256,128,128,64,64], 'act_fun': tf.nn.relu})
           if SaveFile.exists():
                print('loading...', end='')
                model.load_parameters(SaveFile)

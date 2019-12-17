@@ -1,12 +1,15 @@
-from swocgymgrid import SwocGym
+#from swocgymgrid import SwocGym
+from mazegym import MazeGym
 import pyglet
 from pyglet.window import key
 
-GameServicePath = '../../build/GameService/GameService'
+#GameServicePath = '../../build/GameService/GameService'
 
-fieldWidth, fieldHeight = 5, 5
+fieldWidth, fieldHeight = 10, 10
 
-env = SwocGym(1, GameServicePath, 0, fieldWidth=fieldWidth, fieldHeight=fieldHeight)
+#env = SwocGym(1, GameServicePath, 0, fieldWidth=fieldWidth, fieldHeight=fieldHeight)
+env = MazeGym(mazeWidth=fieldWidth, mazeHeight=fieldHeight, nrWallsToRemove=60)
+print(f'obs: {env.observation_space}')
 
 obs, reward, done  = env.reset(), 0, False
 rawImage = env.render('rgb_array', 800, 800)
