@@ -2,7 +2,7 @@ from PIL import Image, ImageDraw
 import numpy as np
 
 def DrawObservation(obs, width, height):
-    field, bot = obs
+    field, bot, others = obs
 
     nrRows, nrColumns = field.shape[0], field.shape[1]
     cellWidth = width / nrColumns
@@ -54,7 +54,7 @@ def DrawObservation(obs, width, height):
             for x,cell in enumerate(row):
                 DrawCell(x, y, cellWidth, cellHeight, cell)
 
-    def DrawBot(bot):
+    def DrawBot(bot, color):
         position = bot[0:2]
         orientation = bot[2] * 2*np.pi
         
@@ -80,11 +80,13 @@ def DrawObservation(obs, width, height):
         for line in lines:
             line = line * [1, -1] + [0, 1]
             xy = line * [width, height]
-            draw.line(xy.flatten().tolist(), fill=255)
+            draw.line(xy.flatten().tolist(), fill=color)
 
     DrawField(field)
 
-    DrawBot(bot)
+    DrawBot(bot, 255)
+    for other in others:
+        DrawBot(other, 64)
 
     del draw
     return im

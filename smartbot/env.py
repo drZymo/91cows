@@ -4,6 +4,8 @@ import json
 from tensorflow.keras.utils import to_categorical  
 import subprocess
 from time import sleep
+import fcntl, termios, array
+
 
 ActionItemTypes = {
     'Coin': 0,
@@ -139,27 +141,39 @@ class Observer(object):
         self.hostname = hostname
         self.portOffset = portOffset
         self.buffer = ''
+        # discard current buffer
+        self._readLine()
+
+    def _readLine(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.connect((self.hostname, 9735+self.portOffset))
+
+            sock_size = array.array('i', [0])  # initialise outside While loop
+            
+            buffer = ''
+
+            while True:
+                fcntl.ioctl(sock, termios.FIONREAD, sock_size)
+                count = sock_size[0]
+                if count > 0:
+                    data = sock.recv(16384).decode('utf-8')
+                    buffer += data
+                if len(buffer) > 0 and buffer[-1] == '\n':
+                    return buffer
+
 
     def _getGameState(self):
-        # is there a line in the buffer
-        # if not, read blocks until there is one
-        newLinePos = self.buffer.find('\n')
-        while newLinePos < 0:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect((self.hostname, 9735+self.portOffset))
-                data = sock.recv(16384).decode('utf-8')
-                self.buffer += data
-            newLinePos = self.buffer.find('\n')
 
-        # make sure all old lines are consumed and only the most recent is used
-        while newLinePos >= 0:
-            line = self.buffer[:newLinePos]
-            self.buffer = self.buffer[newLinePos+1:]
-            newLinePos = self.buffer.find('\n')
+        while True:
+            try:
+                line = self._readLine()
 
-        # conver to game state structure
-        gameState = json.loads(line)
-        return gameState
+                # convert to game state structure
+                gameState = json.loads(line)
+                return gameState
+            except:
+                print('ERROR: getGameState')
+                pass
 
     def getObservation(self):
         gameState = self._getGameState()
@@ -302,9 +316,9 @@ class BotController(object):
         self._sendUpdate()
 
     def turnLeft(self):
-        self.o += np.pi/8
+        self.o += np.pi/16
         self._sendUpdate()
 
     def turnRight(self):
-        self.o -= np.pi/8
+        self.o -= np.pi/16
         self._sendUpdate()
