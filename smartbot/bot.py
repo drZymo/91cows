@@ -13,12 +13,12 @@ GameServicePath = Path.cwd()/'..'/'..'/'build'/'GameService'/'GameService'
 Hostname = 'localhost'
 WindowWidth, WindowHeight = 1200, 600
 
-FieldWidth, FieldHeight = 5, 5
+FieldWidth, FieldHeight = 10, 10
 
 EMPTY = 0
 WALL = 1
 BOT = 2
-ITEM = 3
+ITEM = 4
 
 def getObs(observer):
     # get an observation
@@ -106,7 +106,7 @@ def convertToGrid(fieldObs, botObs):
 
 
 def drawGrid(grid):
-    img = grid / 3
+    img = grid / np.max(grid)
     img = np.uint8(plt.get_cmap('viridis')(img)*255)
     img = np.array(Image.fromarray(img, mode='RGBA').resize((WindowWidth//2, WindowHeight)))
     return img
@@ -142,6 +142,26 @@ def findDistances(grid, startPos):
             checkAndAdd(cellY, cellX+1, distance)
     return distances
 
+def findPath(targetPos, grid, distances):
+    pos = targetPos
+
+    path = []
+    while grid[pos[0], pos[1]] != BOT:
+        distance = distances[pos[0], pos[1]]
+
+        if distances[pos[0]-1, pos[1]] < distance:
+            pos = (pos[0]-1, pos[1])
+        elif distances[pos[0]+1, pos[1]] < distance:
+            pos = (pos[0]+1, pos[1])
+        elif distances[pos[0], pos[1]-1] < distance:
+            pos = (pos[0], pos[1]-1)
+        elif distances[pos[0], pos[1]+1] < distance:
+            pos = (pos[0], pos[1]+1)
+        path.append(pos)
+    path = list(reversed(path))
+    return path
+
+
 
 def main():
     game = GameController(GameServicePath, Hostname)
@@ -167,43 +187,43 @@ def main():
         while True:
             fieldObs, botObs = getObs(observer)
 
-            fieldImg = drawField(fieldObs, botObs)
             grid = convertToGrid(fieldObs, botObs)
-            gridImg = drawGrid(grid)
 
             botPos = np.argwhere(grid == BOT)[0]
 
             distances = findDistances(grid, botPos)
+            reachablePositions = np.argwhere(~np.isinf(distances))
+            reachableDistances = distances[reachablePositions[:,0], reachablePositions[:,1]]
             
             itemPositions = np.argwhere(grid == ITEM)
             itemDistances = distances[itemPositions[:,0], itemPositions[:,1]]
 
-            closestItemPosition = itemPositions[np.argmin(itemDistances)]
+            closestItemPos = itemPositions[np.argmin(itemDistances)]
+            farthestReachablePos =reachablePositions[np.argmax(reachableDistances)]
 
+            path = findPath(closestItemPos, grid, distances)
 
-            pos = closestItemPosition
+            grid = grid.astype(np.float)
 
-            path = []
-            while grid[pos[0], pos[1]] != BOT:
-                distance = distances[pos[0], pos[1]]
+            # Color the path in the grid
+            start = BOT
+            end = ITEM
+            rng = (end - start)
+            start = start + (rng/4)
+            end = end - (rng/4)
+            step = (end - start) / len(path)
+            c = start
+            for i,pos in enumerate(path):
+                grid[pos[0], pos[1]] = c
+                c += step
 
-                if distances[pos[0]-1, pos[1]] < distance:
-                    pos = (pos[0]-1, pos[1])
-                elif distances[pos[0]+1, pos[1]] < distance:
-                    pos = (pos[0]+1, pos[1])
-                elif distances[pos[0], pos[1]-1] < distance:
-                    pos = (pos[0], pos[1]-1)
-                elif distances[pos[0], pos[1]+1] < distance:
-                    pos = (pos[0], pos[1]+1)
-                path.append(pos)
+            targetPos = path[1]
 
-            print(list(reversed(path)))
-
-            #print(botPos, '->', closestItemPosition)
-
-
+            print(botPos, '->', targetPos)
 
             
+            fieldImg = drawField(fieldObs, botObs)
+            gridImg = drawGrid(grid)
             updateWindow(fieldImg, gridImg)
 
 
